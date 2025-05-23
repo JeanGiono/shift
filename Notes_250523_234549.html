@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>上位思維 重點整理 (卡片式頁籤版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', 'Inter', sans-serif;
+            background-color: #f0f4f8; /* 更柔和的淡藍色背景 */
+            color: #334155;
+            overscroll-behavior-y: contain; /* 防止捲動穿透 */
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 20px 20px; /* 調整 padding */
+        }
+        .book-title {
+            font-size: 2.2rem; /* 略微調整標題大小 */
+            font-weight: 700;
+            color: #1e3a8a;
+            text-align: center;
+            margin: 1.5rem 0; /* 調整上下邊距 */
+            padding-bottom: 0.5rem;
+        }
+
+        /* Tab Navigation Styles */
+        .tab-navigation {
+            display: flex;
+            flex-wrap: wrap; /* 允許換行 */
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 0.5rem;
+            margin-bottom: 1.5rem;
+            position: sticky;
+            top: 10px; /* 讓頁籤在捲動時固定在頂部 */
+            z-index: 500;
+        }
+        .tab-button {
+            flex-grow: 1; /* 讓按鈕平均分配空間 */
+            padding: 0.75rem 0.5rem; /* 調整 padding */
+            margin: 0.25rem; /* 按鈕間距 */
+            cursor: pointer;
+            border: none;
+            background-color: transparent;
+            color: #4b5563; /* 未選中時的顏色 */
+            font-weight: 500;
+            font-size: 0.9rem; /* 調整字體大小 */
+            border-radius: 6px;
+            transition: background-color 0.3s, color 0.3s;
+            text-align: center; /* 文字置中 */
+        }
+        .tab-button:hover {
+            background-color: #e0f2fe; /* 淡藍色懸停 */
+            color: #1e3a8a;
+        }
+        .tab-button.active {
+            background-color: #3b82f6; /* 藍色 */
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
+        }
+
+        /* Tab Panel Styles */
+        .tab-panel {
+            display: none;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        .tab-panel.active {
+            display: block;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .chapter-title {
+            font-size: 1.8rem;
+            font-weight: 600;
+            color: #1e40af;
+            margin-top: 1rem; /* 調整卡片內標題的上邊距 */
+            margin-bottom: 1rem;
+            padding-left: 1rem;
+            border-left: 4px solid #3b82f6;
+        }
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #1d4ed8;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .leader-profile {
+            background-color: #e0f2fe;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-top: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .leader-name {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #0c4a6e;
+        }
+        .leader-quote {
+            font-style: italic;
+            color: #075985;
+            margin-top: 0.5rem;
+            padding-left: 1rem;
+            border-left: 3px solid #0ea5e9;
+        }
+        ul {
+            list-style-type: disc;
+            margin-left: 1.5rem;
+            padding-left: 0.5rem;
+        }
+        li {
+            margin-bottom: 0.5rem;
+            line-height: 1.6;
+        }
+        p {
+            line-height: 1.7;
+            margin-bottom: 0.75rem;
+        }
+        .highlight {
+            color: #2563eb;
+            font-weight: 500;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #93c5fd;
+            font-size: 0.9rem;
+            color: #60a5fa;
+        }
+        .gemini-button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            display: inline-flex;
+            align-items: center;
+            margin-top: 1rem;
+            margin-right: 0.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .gemini-button:hover {
+            background-color: #2563eb;
+            transform: translateY(-1px);
+        }
+        .gemini-button:active {
+            transform: translateY(0px);
+        }
+        .gemini-button svg {
+            margin-right: 0.5rem;
+        }
+        .ask-gemini-section {
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+        .ask-gemini-section input[type="text"] {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            font-size: 1rem;
+        }
+        .ask-gemini-section input[type="text"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+            backdrop-filter: blur(3px);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 8% auto;
+            padding: 25px;
+            border: 1px solid #e5e7eb;
+            width: 90%;
+            max-width: 700px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .close-button {
+            color: #9ca3af;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            top: 10px;
+            right: 20px;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: #1f2937;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        .loading-spinner {
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .modal-body {
+            max-height: 65vh;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.8;
+            padding-right: 10px;
+        }
+        .modal-body::-webkit-scrollbar { width: 8px; }
+        .modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
+        .modal-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .modal-body::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        .modal-title-text { color: #1e3a8a; font-weight: 600; }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="book-title">《上位思維》重點整理</h1>
+
+        <div class="tab-navigation">
+            <button class="tab-button active" onclick="showTab('core-goal', this)">本書核心目標</button>
+            <button class="tab-button" onclick="showTab('chapter1', this)">第一章</button>
+            <button class="tab-button" onclick="showTab('chapter2', this)">第二章</button>
+            <button class="tab-button" onclick="showTab('chapter3', this)">第三章</button>
+            <button class="tab-button" onclick="showTab('chapter4', this)">第四章</button>
+            <button class="tab-button" onclick="showTab('final-philosophy', this)">總結性領導哲學</button>
+        </div>
+
+        <div class="ask-gemini-section">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700">請教 Gemini 領導力問題</h2>
+            <input type="text" id="userQuestionInput" placeholder="在此輸入您關於領導力的問題...">
+            <button class="gemini-button" onclick="askGeminiGeneralQuestion()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                請教 Gemini
+            </button>
+        </div>
+
+        <div id="tabContentContainer">
+            <div id="panel-core-goal" class="tab-panel active">
+                <div class="card" id="core-goal-card-content"> <h2 class="chapter-title">本書核心目標</h2>
+                    <p>提供一套實用指南，分享數百名領導者的見解、經歷和作法，協助讀者培養躍升為領導者所需的技能，從在管理者職位上證明自己，晉升到更高職位以增強影響力，最終成功完成基本心態的轉變，成為一名真正的領導者。</p>
+                    <button class="gemini-button" onclick="callGeminiFeature('core-goal-card-content', 'summarize', '本書核心目標摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結核心目標
+                    </button>
+                </div>
+            </div>
+
+            <div id="panel-chapter1" class="tab-panel">
+                <div class="card">
+                    <h2 class="chapter-title">第一章：你真的想要當領導人嗎？</h2>
+                    <div id="chapter1-content-panel"> <h3 class="section-title">領導的挑戰與現實</h3>
+                        <ul>
+                            <li>自2020年以來，領導的難度顯著增加，需應對數位轉型、遠距工作、社會議題、員工期望等新挑戰。</li>
+                            <li>領導者需像政治人物般，隨時準備回應社會迫切提問，並在利害關係人資本主義時代與更多要求矛盾的人進行艱難對話。</li>
+                            <li>年輕世代工作者更重視公司能否反映其個人價值觀，而非僅為公司奉獻。</li>
+                        </ul>
+                        <h3 class="section-title">領導的動機</h3>
+                        <ul>
+                            <li>金錢和權力不足以彌補領導職位所需的犧牲。</li>
+                            <li>許多領導者在年輕時面對逆境（財務挑戰、家庭問題等）是其一大動力，驅使他們掌控人生。</li>
+                            <li><span class="highlight">「飛蛾撲火」特質：</span> 領導者不避開艱難挑戰，反而因此熱血沸騰，視之為機會。 安妮・穆卡伊認為，令人興奮之處在於可以設定並塑造領導職位。</li>
+                        </ul>
+                        <h3 class="section-title">自我覺察的重要性</h3>
+                        <ul>
+                            <li>誠實面對自己為何想成為領導者，這個「為什麼」將支撐度過最困難的時刻。</li>
+                            <li>領導力非黑白分明，應思考想成為什麼樣的領導人，以及如何評量自己的成果。 （約翰・唐諾文的觀點）</li>
+                        </ul>
+                    </div>
+                    <div class="leader-profile" id="leader-kennedy-panel"> <h4 class="leader-name">馬可仕・甘迺迪（英特爾遊戲部總經理）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：早產經歷使他珍惜時間、與兄長的競爭心、父母灌輸「自己的車票自己開」的觀念。</li>
+                            <li>初任管理職：在卡夫食品管理平均年齡較大的員工，初期將職場視為戰場，後意識到需支持員工。</li>
+                            <li>領導大型組織的挑戰：無法得知所有細節，需專注於提供方向、啟發員工、建立願景等。</li>
+                            <li>最困難的部分：做出對員工產生強烈影響的艱難抉擇，例如裁員。</li>
+                            <li>給年輕管理者的忠告：挑戰自我，早期盡可能冒險；進入會議室時，相信自己不會是最聰明的人，但要清楚為何身在此地並展現能力。</li>
+                        </ul>
+                        <p class="leader-quote">「最困難的部分，是做出對員工產生強烈影響的艱難抉擇。」</p>
+                        <button class="gemini-button" onclick="callGeminiFeature('leader-kennedy-panel', 'insights', '馬可仕・甘迺迪的領導洞見')">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                     <button class="gemini-button" onclick="callGeminiFeature('chapter1-content-panel', 'summarize', '第一章摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結本章內容
+                    </button>
+                    <button class="gemini-button" onclick="askChapterQuestion('chapter1-content-panel', '第一章')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        ✨ 針對本節提問
+                    </button>
+                </div>
+            </div>
+
+            <div id="panel-chapter2" class="tab-panel">
+                <div class="card">
+                    <h2 class="chapter-title">第二章：首先，成為出色的管理者</h2>
+                    <div id="chapter2-content-panel"> <h3 class="section-title">管理的重要性</h3>
+                        <ul>
+                            <li>亞隆・艾英（UKG前執行長）認為，好主管是公司為股東價值加值的最大元素，差勁的管理則是摧毀價值的最大元素。 他強調「成為一名好主管需要無比的勇氣」。</li>
+                            <li>UKG公司創建「主管體驗指數」，並將主管40%獎金與領導技能掛鉤。</li>
+                        </ul>
+                        <h3 class="section-title">管理者的類型與心態</h3>
+                        <ul>
+                            <li><span class="highlight">無私 vs. 自我中心：</span> 無私的主管思考如何幫助團隊，培養人才，甚至為明星員工尋找更好的發展機會（如雪拉・托登所述）；自我中心的主管則先考慮自己。</li>
+                            <li>成為人才教練與開發者，能吸引人才加入。</li>
+                        </ul>
+                        <h3 class="section-title">理解人性的複雜</h3>
+                        <ul>
+                            <li>管理者需花費大量時間處理人們的情緒。 琳達・勞塞・布萊恩提到職場動能由個人「行囊裡的物品相互作用所形成」。</li>
+                            <li>被喜愛與受人敬重是不同的。</li>
+                        </ul>
+                        <h3 class="section-title">人們找主管的常見原因</h3>
+                        <ul>
+                            <li><span class="highlight">尋求肯定：</span> 人們渴望得到積極肯定，包括感謝、對工作好壞的回饋、以及個人在團隊中的重要性。 （瓊安・沙佛的觀點）</li>
+                            <li><span class="highlight">保護地盤：</span> 源於對公平性的敏感。</li>
+                            <li><span class="highlight">向上委託（猴子收容）：</span> 員工試圖將問題丟給主管。主管應賦予員工力量解決自己的問題。 （艾雷・特拉斯達赫的觀點）</li>
+                        </ul>
+                        <h3 class="section-title">SCARF模型</h3>
+                        <p>大衛・洛克提出的地位感、確定性、自主性、共事關係與公平性，是內在動機的原色。</p>
+                        <h3 class="section-title">領導力使用手冊</h3>
+                        <ul>
+                            <li>一種幫助團隊成員互相了解偏好、禁忌和怪癖的工具，以縮短適應期，更有效追求共同目標。 （伊瓦・克羅格魯德和路克・勒維斯克的實踐）</li>
+                            <li>手冊內容可包含：成長經歷、真實的自己、抓狂的事與怪癖、如何獲取最高讚賞、別人可能的誤解、最佳溝通方式、優點在特定情況下可能的缺點。</li>
+                        </ul>
+                        <h3 class="section-title">進行對話（給予和尋求回饋）</h3>
+                        <ul>
+                            <li>多數問題源於溝通不良。 卡洛・巴茲用「小狗在地毯上尿尿」比喻即時回饋的重要性。</li>
+                            <li>定期向部屬尋求回饋，了解如何更好地幫助他們。</li>
+                            <li>給予回饋時「不要越網」，即根據自己的觀感而非假設對方想法。 （安德魯・湯普森的建議）</li>
+                        </ul>
+                        <h3 class="section-title">避免微管理</h3>
+                        <ul>
+                            <li>找到授權的平衡點，可採用每週查核。 （黛博拉・法林頓的經驗）</li>
+                            <li>蘇辛德・辛格・卡⻄迪提出：「要麼你來管理我，要麼我來管理你」。</li>
+                            <li>喬治・胡建議項目初期不要「鑽牛角尖」。</li>
+                        </ul>
+                    </div>
+                    <div class="leader-profile" id="leader-mckenna-panel"> <h4 class="leader-name">莫莉・麥肯那（麥當勞全球品牌公關資深總監）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：出身大家庭，學會團隊合作與犧牲；A型性格，喜歡規劃。</li>
+                            <li>初任管理職：從團隊成員轉為領導者是艱難的轉變，早期希望被喜歡而未樹立強硬風格。</li>
+                            <li>領導風格演進：領導者是人們願意追隨並為之工作的人，「她很棒，我喜歡身為她團隊的一員」是其追求目標。</li>
+                            <li>目前努力方向：更勇敢真實地做出艱難決定，即使並非所有人都滿意。</li>
+                            <li>高階主管風範：在不同情況下對團隊與他人產生影響力，展現自信，並將功勞分享給團隊。</li>
+                        </ul>
+                         <p class="leader-quote">「領導者是人們會在今後十年記得並談論的人。」</p>
+                         <button class="gemini-button" onclick="callGeminiFeature('leader-mckenna-panel', 'insights', '莫莉・麥肯那的領導洞見')">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <div class="leader-profile" id="leader-lacey-panel"> <h4 class="leader-name">馬克・萊⻄（《紐約時報》總編輯）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：跨族裔家庭背景，幼時在牙買加生活，培養了適應力和世界觀。</li>
+                            <li>重要影響：優秀領袖對其信心有時多於自己，並耐心指導。他將老闆分為兩類：只想到自己和真心為員工高興的。</li>
+                            <li>管理風格：相信新聞工作是嚴肅但也應有趣的，並希望熱忱能感染他人。</li>
+                            <li>從管理者到領導者：意識到最重要的貢獻發生在指尖離開鍵盤時，即與人對話、討論重大想法、關注報導方向與員工士氣。</li>
+                            <li>困難的對話：「日復一日以誠待人，便會建立起良好的善意」，這有助於進行困難的對話。</li>
+                        </ul>
+                        <p class="leader-quote">「日復一日以誠待人，你便會建立起良好的善意。」</p>
+                         <button class="gemini-button" onclick="callGeminiFeature('leader-lacey-panel', 'insights', '馬克・萊⻄的領導洞見')">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <button class="gemini-button" onclick="callGeminiFeature('chapter2-content-panel', 'summarize', '第二章摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結本章內容
+                    </button>
+                    <button class="gemini-button" onclick="askChapterQuestion('chapter2-content-panel', '第二章')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        ✨ 針對本節提問
+                    </button>
+                </div>
+            </div>
+
+            <div id="panel-chapter3" class="tab-panel">
+                <div class="card">
+                     <h2 class="chapter-title">第三章：贏得不請自來的晉升</h2>
+                    <div id="chapter3-content-panel"> <h3 class="section-title">建立廣闊的基礎</h3>
+                        <ul>
+                            <li>像蓋金字塔一樣，廣闊的底部能形成更穩固的基礎，提供更多工作保障與選項。（安妮・穆卡伊轉調人資的例子）</li>
+                            <li>專注於學習新事物和水平經驗，而非僅追求職銜。</li>
+                            <li>對機會抱持開放心態，減少挫折感。（凱倫・亞伯拉姆森的觀點）</li>
+                        </ul>
+                        <h3 class="section-title">切入車道</h3>
+                        <p>加入新環境或職位時，先了解公司文化和氛圍，再進行改革。（馬克・古姆斯的比喻）</p>
+                        <h3 class="section-title">贏下「便利貼挑戰」</h3>
+                        <p>人們會對你有個簡短的評價（優點+「但是」+缺點）。努力消除「但是」後面的質疑，透過接受不同角色來變得更全面。</p>
+                        <h3 class="section-title">切莫追逐下一份工作</h3>
+                        <ul>
+                            <li>專心將現有工作做到極致，成為可靠、值得依賴的人。（勞埃德・貝蘭克梵的建議）</li>
+                            <li>在工作範圍內拓展技能，下一份工作便會隨之而來。</li>
+                            <li>烏蘇拉・伯恩斯提到「重歸於零」的概念，即在新工作中增添價值以彌補早期學習期的投入。</li>
+                            <li>即使不是夢想中的工作，也要視為學習和改造的機會。（肯恩・倫巴德的觀點）</li>
+                            <li>鮑伯・艾格強調耐心的重要性，機會可能在你意想不到時出現。</li>
+                        </ul>
+                        <h3 class="section-title">完善做與說的比率</h3>
+                        <p>建立言出必行的名聲，可靠會帶來信任與升遷。（布雷特・威爾森的概念）</p>
+                        <h3 class="section-title">不必刻意便能建立人脈</h3>
+                        <ul>
+                            <li>透過共同參與專案或委員會來建立真誠的關係，而非僅是社交應酬。（約瑟夫・普魯默里「在車流中玩耍」的比喻）</li>
+                            <li>利用產業協會或非營利組織的機會。</li>
+                        </ul>
+                        <h3 class="section-title">導師與支持者</h3>
+                        <ul>
+                            <li>慢慢建立關係，而非直接請求對方當導師。可先就特定問題請求建議，採納後回報進展。（雪莉・雅查鮑的策略）</li>
+                            <li>支持者是在會議中為你說話的人，他們願意為你動用政治資本。</li>
+                            <li>朗妲・莫里斯建議用「我需要你的幫助」來組建導師團隊。</li>
+                            <li>準備好「電梯簡報」，以把握與高層偶遇的機會。（蘿蕊・狄克森・福奇的經驗）</li>
+                        </ul>
+                        <h3 class="section-title">讓自己被聽見（尤其對女性與有色人種）</h3>
+                        <ul>
+                            <li><span class="highlight">不開口爭取，就得不到：</span> 積極爭取想要的工作，即使會讓自己不安。（裘蒂・麥克林的經驗）</li>
+                            <li><span class="highlight">讓老闆清楚你的職涯目標：</span> 不能預設別人知道你的想法，必須大聲說出來。（鄭嘉儀的教訓）</li>
+                            <li><span class="highlight">為自己的要求說明理由：</span> 以事實為基礎，證明你的價值與成就，說明為何你最適合。</li>
+                            <li><span class="highlight">不必害怕興風作浪：</span> 在薪酬談判時，適度爭取可能反而會贏得尊重。</li>
+                            <li><span class="highlight">學習自誇的藝術：</span> 在適當時機讓他人知道你的貢獻，例如在與上司的一對一會談中提及，或歸功於團隊同時說明自己的角色。</li>
+                        </ul>
+                        <h3 class="section-title">成為問題解決者</h3>
+                        <p>解決老闆的問題，甚至他們自己都不知道的問題，能讓你快速晉升。「我來處理」（I'm on it）應成為口頭禪。</p>
+                        <h3 class="section-title">沒有所謂「正確」的道路</h3>
+                        <ul>
+                            <li>許多領導人的職涯道路迂迴難測。保持開放與警覺，從每個經歷中學習。（魯絲・席蒙斯的忠告）</li>
+                            <li>專注於自己的比賽，而非與同事比較。</li>
+                        </ul>
+                    </div>
+                    <div class="leader-profile" id="leader-lund-panel"> <h4 class="leader-name">克莉絲汀娜・倫德（愛依斯電力公司總裁暨執行長）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：重視辛勤工作、教育、幫助他人。體操運動員經歷培養了計劃能力。</li>
+                            <li>初任管理職：了解到團隊成員希望辛勤工作獲得認同，並對職涯抱負抱持開放心態。</li>
+                            <li>協作與開放式的領導風格：表現直接，尋求大量意見，包括相反觀點；流露脆弱一面，分享個人掙扎。</li>
+                            <li>躍升領導人的關鍵時刻：意識到領導不僅需要技術卓越，還需形成觀點並具說服力地溝通。</li>
+                            <li>給嶄露頭角主管的建議：確保自己可靠，讓團隊更好；具備獨特洞察力，並以具說服力的方式溝通。</li>
+                        </ul>
+                        <p class="leader-quote">「團隊成員希望他們的辛勤工作獲得認同。」</p>
+                         <button class="gemini-button" onclick="callGeminiFeature('leader-lund-panel', 'insights', '克莉絲汀娜・倫德的領導洞見')">
+                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <div class="leader-profile" id="leader-bryant-gregory-panel"> <h4 class="leader-name">格雷戈里・布萊安特（亞德諾半導體執行副總裁）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：外祖父的工程師背景啟發其運用科技解決問題的熱情；運動經驗使其將領導力視為服務。</li>
+                            <li>初任管理職：早期較沒耐心，後理解不同人有不同動機，需真誠相處。</li>
+                            <li>建立信任的策略：源於真誠，坦誠相告；協助者角色；重視與同事的關係。</li>
+                            <li>躍升領導人的時刻：在管理亞太地區公司時，首次需真正對外代表整家公司。</li>
+                            <li>指導常見主題：在策略中刻意製造異議以學習；接受衝突（非人際衝突）；放任混亂以促進創新。</li>
+                            <li>給未來領導人的建議：接受不舒服的感覺，強迫自己學習，不要害怕。</li>
+                        </ul>
+                        <p class="leader-quote">「人們必須想要跟你一起工作，並相互合作。」</p>
+                         <button class="gemini-button" onclick="callGeminiFeature('leader-bryant-gregory-panel', 'insights', '格雷戈里・布萊安特的領導洞見')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <button class="gemini-button" onclick="callGeminiFeature('chapter3-content-panel', 'summarize', '第三章摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結本章內容
+                    </button>
+                    <button class="gemini-button" onclick="askChapterQuestion('chapter3-content-panel', '第三章')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        ✨ 針對本節提問
+                    </button>
+                </div>
+            </div>
+
+            <div id="panel-chapter4" class="tab-panel">
+                <div class="card">
+                    <h2 class="chapter-title">第四章：躍升為領導人</h2>
+                    <div id="chapter4-content-panel"> <h3 class="section-title">心態轉變</h3>
+                        <ul>
+                            <li>約翰・唐諾文：「要躍升為領導人，必須殺掉以前的自己。」 這意味著要用新的詞彙，從試算表和電郵轉向麥克風。</li>
+                            <li>專注於對組織最有益的事，而非僅對個人業務或職涯有利。</li>
+                        </ul>
+                        <h3 class="section-title">釐清個人領導價值觀</h3>
+                        <ul>
+                            <li>準備好回答「身為一名領導人，你是誰？」</li>
+                            <li>明確表達重視的事物，能劃出鼓勵與不容忍行為的界線，建立可信度與可預測性。</li>
+                            <li>思考：對你最重要的三個價值觀是什麼？如何實踐？為何重要？如何陳述領導風格？團隊成員如何描述你？</li>
+                            <li>潘・菲爾茲的領導品牌：「如果事情出錯，那是我的問題；如果事情順利，那就是他們的功勞。」</li>
+                        </ul>
+                        <h3 class="section-title">做出決策</h3>
+                        <ul>
+                            <li>領導層的工作很大一部分是處理困難或不愉快的事情。（陶德・洛瓦克的體悟）</li>
+                            <li>需更快當場做出決定，聽從直覺，因為無法獲得全部資訊或完美數據。（黛博拉・李的經驗）</li>
+                            <li>決策框架：取得團隊所有意見，營造歡迎辯論的環境；照一照「醜陋鏡」，坦然面對挑戰；當心「邏輯箱」，質疑基本假設；聆聽但最終需由領導者主持大局並做出決策；提供決策背景。</li>
+                            <li>琳達・赫德遜：「你必須接受自己的決定並承擔責任。」</li>
+                        </ul>
+                        <h3 class="section-title">設立標竿</h3>
+                        <ul>
+                            <li>在過高期望（可能打擊士氣）與過低期望（無法推動變革）之間取得平衡。</li>
+                            <li>安德烈・杜蘭德提出「幸福等於現實減去期望」的觀點，強調設定可實現目標對公司氛圍的影響。</li>
+                        </ul>
+                        <h3 class="section-title">區隔的藝術（避免身心俱疲）</h3>
+                        <ul>
+                            <li><span class="highlight">專注於最重要的事：</span> 優先處理五件以內的關鍵事項。（戴夫・戈貝爾的建議）可運用一頁策略框架（目標、三項關鍵行動、三項關鍵挑戰、如何評估成功）。 找出當天的「畢卡索」。</li>
+                            <li><span class="highlight">別被捲入人們的問題：</span> 辨別問題的真正急迫性，控制會議時間。</li>
+                            <li><span class="highlight">授權及尋求協助：</span> 領導並非一人扛起所有問題，應召集團隊共同解決。</li>
+                            <li><span class="highlight">讓自己喘口氣：</span> 放棄做到完美，接受並非所有人都會喜歡你。（蘇辛德・辛格・卡⻄迪的看法）</li>
+                            <li><span class="highlight">做對公司最有利的事：</span> 這是釐清艱難決策的簡單問題。</li>
+                        </ul>
+                        <h3 class="section-title">培養自我覺察</h3>
+                        <ul>
+                            <li>了解自身強弱項、價值觀，以及他人對你的看法（感知即事實）。</li>
+                            <li>領導者的言行舉止都會帶來巨大影響，需在狹窄的情緒區間內運作，保持可預測性。（魯本・馬克的例子）</li>
+                            <li>了解自己的觸發點和隱藏動機。</li>
+                            <li>不斷尋求回饋，照亮盲點。</li>
+                        </ul>
+                         <h3 class="section-title">培養其他領導人</h3>
+                        <ul>
+                            <li>領導者的工作包括培養接班人，建立「教練樹」是重要傳承。</li>
+                            <li>專注於培養多元化的領導人隊伍，這不僅正確，也對企業有利。 安珀・吉爾德強調多元、公平、包容性必須是工作的核心。</li>
+                            <li>提升個人文化靈敏度，投入時間與多元化的人們建立聯繫。</li>
+                        </ul>
+                        <h3 class="section-title">我們對自己說的故事（心理陷阱）</h3>
+                        <ul>
+                            <li><span class="highlight">害怕失敗：</span> 問自己「可能發生的最壞情況是什麼？」通常恐懼是無根據的。</li>
+                            <li><span class="highlight">現實不過是素材：</span> 如何看待和運用經歷取決於自己。（萊拉・賈納的觀點）</li>
+                            <li><span class="highlight">不要當受害者：</span> 受害者心態會讓人失去掌控力；應尋找挑戰中的機會。（賽斯・貝斯默特尼克的經歷）</li>
+                        </ul>
+                    </div>
+                    <div class="leader-profile" id="leader-krishnamurthy-panel"> <h4 class="leader-name">巴拉吉・克里希那穆提（雪佛龍企業戰略與永續發展副總裁）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：努力工作學習的重要性，凡事盡力做到最好。</li>
+                            <li>管理與領導的區別：管理是被要求或期望的事；領導是掌控局面，引導向更好發展並承擔結果。</li>
+                            <li>晉升中的領導經驗：透過讓員工保持專注的方式領導；提供清晰背景的重要性。</li>
+                            <li>領導最困難的部分：以平衡方式處理所有意見並做出決定；擁有「角色勇氣」；避免與現實脫節。</li>
+                            <li>建立高效能團隊：「營造一個讓團隊可以找到正確答案的環境非常重要。」</li>
+                        </ul>
+                        <p class="leader-quote">「營造一個讓團隊可以找到正確答案的環境非常重要。」</p>
+                         <button class="gemini-button" onclick="callGeminiFeature('leader-krishnamurthy-panel', 'insights', '巴拉吉・克里希那穆提的領導洞見')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <div class="leader-profile" id="leader-porray-panel"> <h4 class="leader-name">瑪莉・伊莉莎白・波瑞（安永客戶技術全球副總裁）的領導檔案重點：</h4>
+                        <ul>
+                            <li>早期影響：頻繁搬家使其堅韌且外向。</li>
+                            <li>初任管理職：早期過於嚴苛，後又矯枉過正試圖與人為友，最終找回自我。</li>
+                            <li>管理與領導的區別：管理是控制，領導是授權與移除障礙。</li>
+                            <li>躍升領導人的思維轉變：從問題解決者轉向培養他人；學會「放棄」自己喜愛的事物，以獲得新體驗並為他人創造機會。</li>
+                            <li>最終建議：「一旦你感到舒適，便需要前進到新職位。」</li>
+                        </ul>
+                        <p class="leader-quote">「一旦你感到舒適，便需要前進到新職位。」</p>
+                        <button class="gemini-button" onclick="callGeminiFeature('leader-porray-panel', 'insights', '瑪莉・伊莉莎白・波瑞的領導洞見')">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            ✨ 提煉領導者洞見
+                        </button>
+                    </div>
+                    <button class="gemini-button" onclick="callGeminiFeature('chapter4-content-panel', 'summarize', '第四章摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結本章內容
+                    </button>
+                    <button class="gemini-button" onclick="askChapterQuestion('chapter4-content-panel', '第四章')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
+                        ✨ 針對本節提問
+                    </button>
+                </div>
+            </div>
+
+            <div id="panel-final-philosophy" class="tab-panel">
+                <div class="card" id="final-philosophy-card-content"> <h2 class="chapter-title">總結性的領導哲學</h2>
+                    <p>領導是極限運動，主要在大腦進行，是審視自我的純粹視角。 雖然看似與你個人有關，但真正的核心是關於你能透過他人達成什麼，以及為他人取得何種成就。 凱文・沙爾認為，領導的巔峰是與同事共同完成有價值且具難度的事，並知道若非自己的決定，有些事不會發生。</p>
+                    <button class="gemini-button" onclick="callGeminiFeature('final-philosophy-card-content', 'summarize', '總結性領導哲學摘要')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
+                        ✨ 總結領導哲學
+                    </button>
+                </div>
+            </div>
+        </div> <div id="geminiModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" onclick="closeModal()">&times;</span>
+                <h3 id="modalTitle" class="text-xl font-semibold mb-4 modal-title-text">Gemini 回應</h3>
+                <div id="modalBody" class="modal-body">
+                    </div>
+                <div id="loadingIndicatorModal" class="flex items-center justify-center mt-4 py-3" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <p class="text-gray-600">正在生成內容，請稍候...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>重點整理來源：《上位思維》</p>
+        </div>
+    </div>
+
+    <script>
+        const modal = document.getElementById('geminiModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+        const loadingIndicatorModal = document.getElementById('loadingIndicatorModal');
+        const userQuestionInput = document.getElementById('userQuestionInput');
+
+        function openModal(title, content) {
+            modalTitle.textContent = title;
+            modalBody.innerHTML = content.replace(/\n/g, '<br>');
+            modal.style.display = 'block';
+        }
+
+        function closeModal() {
+            modal.style.display = 'none';
+            modalBody.innerHTML = '';
+            const tempInput = document.getElementById('tempChapterQuestionInput');
+            if (tempInput && tempInput.parentElement) {
+                tempInput.parentElement.remove();
+            }
+        }
+
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        function showTab(tabName, clickedButton) {
+            const tabPanels = document.querySelectorAll('.tab-panel');
+            tabPanels.forEach(panel => {
+                panel.classList.remove('active');
+            });
+            const targetPanel = document.getElementById(`panel-${tabName}`);
+            if (targetPanel) {
+                targetPanel.classList.add('active');
+            } else {
+                console.error(`Panel with ID 'panel-${tabName}' not found.`);
+            }
+
+            const tabButtons = document.querySelectorAll('.tab-button');
+            tabButtons.forEach(button => {
+                button.classList.remove('active');
+            });
+
+            if (clickedButton) {
+                clickedButton.classList.add('active');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // HTML already sets the first tab as active by default
+            // No need to call showTab here explicitly for initialization
+        });
+
+        function getTextFromElement(elementId) {
+            const contentElement = document.getElementById(elementId);
+            if (!contentElement) {
+                console.warn(`getTextFromElement: Element with ID '${elementId}' not found.`);
+                return '';
+            }
+
+            let textToProcess = '';
+            
+            if (elementId.startsWith('leader-') && elementId.endsWith('-panel')) {
+                const texts = [];
+                contentElement.querySelectorAll('h4, li, p.leader-quote').forEach(el => texts.push(el.innerText));
+                textToProcess = texts.join('\n');
+            } else if (elementId.endsWith('-content-panel') || (elementId.endsWith('-card-content'))) {
+                let mainContent = '';
+                const sections = contentElement.querySelectorAll('h2.chapter-title, h3.section-title, ul, p');
+                if (sections.length > 0) {
+                    mainContent = Array.from(sections).map(el => {
+                        if (el.tagName === 'UL') {
+                            return Array.from(el.querySelectorAll('li')).map(li => `- ${li.innerText}`).join('\n');
+                        }
+                        return el.innerText;
+                    }).join('\n\n');
+                } else {
+                    mainContent = contentElement.innerText;
+                }
+                textToProcess = mainContent;
+
+            } else {
+                 textToProcess = contentElement.innerText;
+            }
+
+            textToProcess = textToProcess.replace(/✨.*?提煉領導者洞見/g, '')
+                                         .replace(/✨.*?總結.*?內容/g, '')
+                                         .replace(/✨.*?針對本節提問/g, '')
+                                         .replace(/請教 Gemini/g, '')
+                                         .trim();
+            return textToProcess;
+        }
+
+        async function executeGeminiCall(prompt, displayTitle) {
+            loadingIndicatorModal.style.display = 'flex';
+            modalBody.innerHTML = '';
+            openModal(displayTitle, '');
+
+            try {
+                const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`API 請求失敗 (${response.status}): ${errorData?.error?.message || '未知錯誤'}`);
+                }
+                const result = await response.json();
+                if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+                    modalBody.innerHTML = result.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
+                } else {
+                    throw new Error('從 API 收到的回應格式無效。');
+                }
+            } catch (error) {
+                console.error('Gemini API Call Error:', error);
+                modalBody.textContent = `發生錯誤：${error.message} 請檢查瀏覽器控制台以獲取更多資訊。`;
+            } finally {
+                loadingIndicatorModal.style.display = 'none';
+            }
+        }
+
+        async function callGeminiFeature(elementId, featureType, displayTitle) {
+            const textToProcess = getTextFromElement(elementId);
+            if (!textToProcess.trim()) {
+                openModal(displayTitle, '錯誤：找不到可處理的文字內容。');
+                loadingIndicatorModal.style.display = 'none';
+                return;
+            }
+
+            let prompt;
+            if (featureType === 'summarize') {
+                prompt = `請根據以下這段關於《上位思維》書中 ${displayTitle.replace('摘要','')} 的文本，提供一個簡潔的摘要，摘要內容需包含原文的核心觀點和主要教訓。請用臺灣繁體中文回答。\n\n文本內容：\n${textToProcess}`;
+            } else if (featureType === 'insights') {
+                prompt = `請從以下關於《上位思維》書中 ${displayTitle.replace('的領導洞見','')} 的分享文本中，提煉出3-5個關鍵的領導力洞見或實用建議，並以條列方式呈現。請用臺灣繁體中文回答。\n\n文本內容：\n${textToProcess}`;
+            } else {
+                openModal(displayTitle, '錯誤：未知的請求類型。');
+                loadingIndicatorModal.style.display = 'none';
+                return;
+            }
+            await executeGeminiCall(prompt, displayTitle);
+        }
+
+        async function askGeminiGeneralQuestion() {
+            const question = userQuestionInput.value.trim();
+            if (!question) {
+                openModal("請教 Gemini", "請先輸入您的問題。");
+                return;
+            }
+            const bookCoreGoalText = getTextFromElement('core-goal-card-content');
+            const bookFinalPhilosophyText = getTextFromElement('final-philosophy-card-content');
+            
+            let bookContext = '';
+            if (bookCoreGoalText) {
+                bookContext += `書本的核心目標：\n${bookCoreGoalText}\n\n`;
+            }
+            if (bookFinalPhilosophyText) {
+                bookContext += `書本的總結性領導哲學：\n${bookFinalPhilosophyText}\n\n`;
+            }
+
+            const prompt = `這是一份關於《上位思維：從當上主管到成為領導人》的重點整理。${bookContext ? '以下是書本的一些核心概念：\n' + bookContext : ''}針對以下關於領導力或本書內容的問題，請提供一個清晰且具洞察力的回答。請用臺灣繁體中文回答。\n\n使用者問題：\n${question}`;
+            await executeGeminiCall(prompt, `關於「${question.substring(0,20)}...」的回答`);
+            userQuestionInput.value = '';
+        }
+
+        function askChapterQuestion(contentElementId, chapterName) {
+            const tempInputId = 'tempChapterQuestionInput';
+            const existingTempInput = document.getElementById(tempInputId);
+            if (existingTempInput && existingTempInput.parentElement) {
+                 existingTempInput.parentElement.remove();
+            }
+
+            const inputContainer = document.createElement('div');
+            inputContainer.className = 'mt-4 mb-3';
+            const tempInput = document.createElement('input');
+            tempInput.type = 'text';
+            tempInput.id = tempInputId;
+            tempInput.placeholder = `針對${chapterName}的內容提問...`;
+            tempInput.className = 'w-full p-2 border border-gray-300 rounded-md text-slate-700';
+
+            const submitButton = document.createElement('button');
+            submitButton.textContent = '送出問題';
+            submitButton.className = 'gemini-button bg-green-500 hover:bg-green-600 mt-2';
+            submitButton.onclick = async () => {
+                const chapterQuestion = tempInput.value.trim();
+                if (!chapterQuestion) {
+                    // Update modal body directly if input is empty, instead of alert
+                    const currentModalBody = document.getElementById('modalBody');
+                    if(currentModalBody) currentModalBody.innerHTML = "請輸入您針對本章節的問題。";
+                    return;
+                }
+                const chapterText = getTextFromElement(contentElementId);
+                const prompt = `關於《上位思維》${chapterName}的內容 (如下方文本所示)，請回答以下問題。請用臺灣繁體中文回答。\n\n相關章節內容：\n${chapterText}\n\n使用者問題：\n${chapterQuestion}`;
+                const answerDisplayTitle = `關於 ${chapterName} - 「${chapterQuestion.substring(0,20)}...」`;
+                
+                // Clear the input container before showing the result
+                if(inputContainer.parentNode) { // Check if still part of DOM
+                    inputContainer.innerHTML = ''; // Clear the input and button
+                }
+                await executeGeminiCall(prompt, answerDisplayTitle);
+            };
+
+            inputContainer.appendChild(tempInput);
+            inputContainer.appendChild(submitButton);
+            
+            modalTitle.textContent = `針對 ${chapterName} 提問`;
+            modalBody.innerHTML = '';
+            modalBody.appendChild(inputContainer);
+            loadingIndicatorModal.style.display = 'none';
+            modal.style.display = 'block';
+            tempInput.focus();
+        }
+
+    </script>
+</body>
+</html>

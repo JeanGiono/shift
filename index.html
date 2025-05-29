@@ -1,859 +1,1771 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>上位思維 重點整理 (卡片式頁籤版)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Noto Sans TC', 'Inter', sans-serif;
-            background-color: #f0f4f8; /* 更柔和的淡藍色背景 */
-            color: #334155;
-            overscroll-behavior-y: contain; /* 防止捲動穿透 */
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 0 20px 20px; /* 調整 padding */
-        }
-        .book-title {
-            font-size: 2.2rem; /* 略微調整標題大小 */
-            font-weight: 700;
-            color: #1e3a8a;
-            text-align: center;
-            margin: 1.5rem 0; /* 調整上下邊距 */
-            padding-bottom: 0.5rem;
-        }
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, addDoc, query, where, getDocs, onSnapshot, doc, deleteDoc, setDoc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { setLogLevel } from "firebase/app";
 
-        /* Tab Navigation Styles */
-        .tab-navigation {
-            display: flex;
-            flex-wrap: wrap; /* 允許換行 */
-            background-color: #ffffff;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            padding: 0.5rem;
-            margin-bottom: 1.5rem;
-            position: sticky;
-            top: 10px; /* 讓頁籤在捲動時固定在頂部 */
-            z-index: 500;
-        }
-        .tab-button {
-            flex-grow: 1; /* 讓按鈕平均分配空間 */
-            padding: 0.75rem 0.5rem; /* 調整 padding */
-            margin: 0.25rem; /* 按鈕間距 */
-            cursor: pointer;
-            border: none;
-            background-color: transparent;
-            color: #4b5563; /* 未選中時的顏色 */
-            font-weight: 500;
-            font-size: 0.9rem; /* 調整字體大小 */
-            border-radius: 6px;
-            transition: background-color 0.3s, color 0.3s;
-            text-align: center; /* 文字置中 */
-        }
-        .tab-button:hover {
-            background-color: #e0f2fe; /* 淡藍色懸停 */
-            color: #1e3a8a;
-        }
-        .tab-button.active {
-            background-color: #3b82f6; /* 藍色 */
-            color: white;
-            font-weight: 600;
-            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
-        }
+// Firebase 設定 - 增強 robustness
+let parsedFirebaseConfig;
+const defaultFirebaseConfig = {
+    apiKey: "YOUR_API_KEY", // 請替換成您的 Firebase API Key
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+};
 
-        /* Tab Panel Styles */
-        .tab-panel {
-            display: none;
-            animation: fadeIn 0.5s ease-in-out;
-        }
-        .tab-panel.active {
-            display: block;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+// 檢查 __firebase_config 是否已定義且有效
+if (typeof __firebase_config !== 'undefined' && __firebase_config !== null && __firebase_config.trim() !== "") {
+  try {
+    parsedFirebaseConfig = JSON.parse(__firebase_config);
+  } catch (e) {
+    console.error("無法解析 __firebase_config，將使用預設 Firebase 設定。錯誤:", e);
+    parsedFirebaseConfig = defaultFirebaseConfig;
+  }
+} else {
+  // 如果 __firebase_config 未定義，或已定義但為空/無效，則使用預設設定
+  if (typeof __firebase_config !== 'undefined') { // 檢查是否已定義但無效
+     console.warn("__firebase_config 已定義但為空或無效，將使用預設 Firebase 設定。");
+  }
+  parsedFirebaseConfig = defaultFirebaseConfig;
+}
+const firebaseConfig = parsedFirebaseConfig;
 
-        .chapter-title {
-            font-size: 1.8rem;
-            font-weight: 600;
-            color: #1e40af;
-            margin-top: 1rem; /* 調整卡片內標題的上邊距 */
-            margin-bottom: 1rem;
-            padding-left: 1rem;
-            border-left: 4px solid #3b82f6;
-        }
-        .section-title {
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: #1d4ed8;
-            margin-top: 1.5rem;
-            margin-bottom: 0.75rem;
-        }
-        .leader-profile {
-            background-color: #e0f2fe;
-            border: 1px solid #bae6fd;
-            border-radius: 8px;
-            padding: 1.5rem;
-            margin-top: 1.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .leader-name {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: #0c4a6e;
-        }
-        .leader-quote {
-            font-style: italic;
-            color: #075985;
-            margin-top: 0.5rem;
-            padding-left: 1rem;
-            border-left: 3px solid #0ea5e9;
-        }
-        ul {
-            list-style-type: disc;
-            margin-left: 1.5rem;
-            padding-left: 0.5rem;
-        }
-        li {
-            margin-bottom: 0.5rem;
-            line-height: 1.6;
-        }
-        p {
-            line-height: 1.7;
-            margin-bottom: 0.75rem;
-        }
-        .highlight {
-            color: #2563eb;
-            font-weight: 500;
-        }
-        .card {
-            background-color: #ffffff;
-            border-radius: 12px;
-            padding: 1.5rem 2rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
-        }
+// 檢查 __app_id 是否已定義
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-language-learner-app-multilang';
 
-        .footer {
-            text-align: center;
-            margin-top: 3rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #93c5fd;
-            font-size: 0.9rem;
-            color: #60a5fa;
-        }
-        .gemini-button {
-            background-color: #3b82f6;
-            color: white;
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
-            display: inline-flex;
-            align-items: center;
-            margin-top: 1rem;
-            margin-right: 0.5rem;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .gemini-button:hover {
-            background-color: #2563eb;
-            transform: translateY(-1px);
-        }
-        .gemini-button:active {
-            transform: translateY(0px);
-        }
-        .gemini-button svg {
-            margin-right: 0.5rem;
-        }
-        .ask-gemini-section {
-            background-color: #ffffff;
-            border-radius: 12px;
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
-        }
-        .ask-gemini-section input[type="text"] {
-            width: 100%;
-            padding: 0.75rem 1rem;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            font-size: 1rem;
-        }
-        .ask-gemini-section input[type="text"]:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
-        }
+// 初始化 Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-        /* Modal Styles */
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.6);
-            backdrop-filter: blur(3px);
-        }
-        .modal-content {
-            background-color: #fefefe;
-            margin: 8% auto;
-            padding: 25px;
-            border: 1px solid #e5e7eb;
-            width: 90%;
-            max-width: 700px;
-            border-radius: 10px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            position: relative;
-        }
-        .close-button {
-            color: #9ca3af;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            position: absolute;
-            top: 10px;
-            right: 20px;
-        }
-        .close-button:hover,
-        .close-button:focus {
-            color: #1f2937;
-            text-decoration: none;
-            cursor: pointer;
-        }
-        .loading-spinner {
-            border: 4px solid #e5e7eb;
-            border-top: 4px solid #3b82f6;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            animation: spin 1s linear infinite;
-            margin-right: 10px;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .modal-body {
-            max-height: 65vh;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            line-height: 1.8;
-            padding-right: 10px;
-        }
-        .modal-body::-webkit-scrollbar { width: 8px; }
-        .modal-body::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-        .modal-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .modal-body::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
-        .modal-title-text { color: #1e3a8a; font-weight: 600; }
+setLogLevel('debug'); // Firebase 日誌級別
 
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1 class="book-title">《上位思維》重點整理</h1>
+// AI 生字簿的 Gemini API JSON Schema
+const vocabGenerationSchema = {
+  type: "OBJECT",
+  properties: {
+    "definitions": {
+      "type": "ARRAY",
+      "items": { "type": "STRING" },
+      "description": "List of definitions for the word/phrase in its original language."
+    },
+    "translation_zh_TW": {
+      "type": "STRING",
+      "description": "Traditional Chinese translation of the word/phrase."
+    },
+    "example_sentence": {
+      "type": "STRING",
+      "description": "An example sentence using the word/phrase in its original language."
+    },
+    "error": {
+      "type": "STRING",
+      "description": "Error message if the word/phrase cannot be processed.",
+      "optional": true
+    }
+  },
+  required: ["definitions", "translation_zh_TW", "example_sentence"]
+};
 
-        <div class="tab-navigation">
-            <button class="tab-button active" onclick="showTab('core-goal', this)">本書核心目標</button>
-            <button class="tab-button" onclick="showTab('chapter1', this)">第一章</button>
-            <button class="tab-button" onclick="showTab('chapter2', this)">第二章</button>
-            <button class="tab-button" onclick="showTab('chapter3', this)">第三章</button>
-            <button class="tab-button" onclick="showTab('chapter4', this)">第四章</button>
-            <button class="tab-button" onclick="showTab('final-philosophy', this)">總結性領導哲學</button>
-        </div>
+// AI 文章洞察的 Gemini API JSON Schema
+const insightGenerationSchema = {
+  type: "OBJECT",
+  properties: {
+    "key_vocabulary": {
+      "type": "ARRAY",
+      "description": "List of 5-7 key vocabulary words from the article, suitable for an intermediate learner of the article's language. Focus on less common but useful words.",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "word": { "type": "STRING", "description": "The vocabulary word (in article's language)." },
+          "definition_en": { "type": "STRING", "description": "Concise definition of the word in the article's language (prompt will specify this, field name kept for compatibility)." },
+          "translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the word." },
+          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) containing the word. If the word appears multiple times, choose a clear example." }
+        },
+        "required": ["word", "definition_en", "translation_zh_TW", "example_sentence_from_article"]
+      }
+    },
+    "useful_phrases": {
+      "type": "ARRAY",
+      "description": "List of 3-5 useful phrases or idioms from the article (in article's language).",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "phrase": { "type": "STRING", "description": "The phrase or idiom (in article's language)." },
+          "meaning_en": { "type": "STRING", "description": "Concise meaning of the phrase in the article's language (prompt will specify this, field name kept for compatibility)." },
+          "translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the phrase." },
+          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) containing the phrase." }
+        },
+        "required": ["phrase", "meaning_en", "translation_zh_TW", "example_sentence_from_article"]
+      }
+    },
+    "grammar_highlights": {
+      "type": "ARRAY",
+      "description": "List of 2-3 noteworthy grammar structures or patterns from the article.",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "grammar_point_name_zh_TW": { "type": "STRING", "description": "Name of the grammar point in Traditional Chinese (e.g., '[ArticleLanguage]的過去完成式', '[ArticleLanguage]的被動語態', '[ArticleLanguage]的動名詞作主語')." },
+          "explanation_zh_TW": { "type": "STRING", "description": "Brief (1-2 sentences) explanation of the grammar rule in Traditional Chinese, focusing on its use in the example from the article." },
+          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) showcasing this grammar point." }
+        },
+        "required": ["grammar_point_name_zh_TW", "explanation_zh_TW", "example_sentence_from_article"]
+      }
+    }
+  },
+  required: ["key_vocabulary", "useful_phrases", "grammar_highlights"]
+};
 
-        <div class="ask-gemini-section">
-            <h2 class="text-xl font-semibold mb-3 text-gray-700">請教 Gemini 領導力問題</h2>
-            <input type="text" id="userQuestionInput" placeholder="在此輸入您關於領導力的問題...">
-            <button class="gemini-button" onclick="askGeminiGeneralQuestion()">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                請教 Gemini
-            </button>
-        </div>
-
-        <div id="tabContentContainer">
-            <div id="panel-core-goal" class="tab-panel active">
-                <div class="card" id="core-goal-card-content"> <h2 class="chapter-title">本書核心目標</h2>
-                    <p>提供一套實用指南，分享數百名領導者的見解、經歷和作法，協助讀者培養躍升為領導者所需的技能，從在管理者職位上證明自己，晉升到更高職位以增強影響力，最終成功完成基本心態的轉變，成為一名真正的領導者。</p>
-                    <button class="gemini-button" onclick="callGeminiFeature('core-goal-card-content', 'summarize', '本書核心目標摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結核心目標
-                    </button>
-                </div>
-            </div>
-
-            <div id="panel-chapter1" class="tab-panel">
-                <div class="card">
-                    <h2 class="chapter-title">第一章：你真的想要當領導人嗎？</h2>
-                    <div id="chapter1-content-panel"> <h3 class="section-title">領導的挑戰與現實</h3>
-                        <ul>
-                            <li>自2020年以來，領導的難度顯著增加，需應對數位轉型、遠距工作、社會議題、員工期望等新挑戰。</li>
-                            <li>領導者需像政治人物般，隨時準備回應社會迫切提問，並在利害關係人資本主義時代與更多要求矛盾的人進行艱難對話。</li>
-                            <li>年輕世代工作者更重視公司能否反映其個人價值觀，而非僅為公司奉獻。</li>
-                        </ul>
-                        <h3 class="section-title">領導的動機</h3>
-                        <ul>
-                            <li>金錢和權力不足以彌補領導職位所需的犧牲。</li>
-                            <li>許多領導者在年輕時面對逆境（財務挑戰、家庭問題等）是其一大動力，驅使他們掌控人生。</li>
-                            <li><span class="highlight">「飛蛾撲火」特質：</span> 領導者不避開艱難挑戰，反而因此熱血沸騰，視之為機會。 安妮・穆卡伊認為，令人興奮之處在於可以設定並塑造領導職位。</li>
-                        </ul>
-                        <h3 class="section-title">自我覺察的重要性</h3>
-                        <ul>
-                            <li>誠實面對自己為何想成為領導者，這個「為什麼」將支撐度過最困難的時刻。</li>
-                            <li>領導力非黑白分明，應思考想成為什麼樣的領導人，以及如何評量自己的成果。 （約翰・唐諾文的觀點）</li>
-                        </ul>
-                    </div>
-                    <div class="leader-profile" id="leader-kennedy-panel"> <h4 class="leader-name">馬可仕・甘迺迪（英特爾遊戲部總經理）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：早產經歷使他珍惜時間、與兄長的競爭心、父母灌輸「自己的車票自己開」的觀念。</li>
-                            <li>初任管理職：在卡夫食品管理平均年齡較大的員工，初期將職場視為戰場，後意識到需支持員工。</li>
-                            <li>領導大型組織的挑戰：無法得知所有細節，需專注於提供方向、啟發員工、建立願景等。</li>
-                            <li>最困難的部分：做出對員工產生強烈影響的艱難抉擇，例如裁員。</li>
-                            <li>給年輕管理者的忠告：挑戰自我，早期盡可能冒險；進入會議室時，相信自己不會是最聰明的人，但要清楚為何身在此地並展現能力。</li>
-                        </ul>
-                        <p class="leader-quote">「最困難的部分，是做出對員工產生強烈影響的艱難抉擇。」</p>
-                        <button class="gemini-button" onclick="callGeminiFeature('leader-kennedy-panel', 'insights', '馬可仕・甘迺迪的領導洞見')">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                     <button class="gemini-button" onclick="callGeminiFeature('chapter1-content-panel', 'summarize', '第一章摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結本章內容
-                    </button>
-                    <button class="gemini-button" onclick="askChapterQuestion('chapter1-content-panel', '第一章')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                        ✨ 針對本節提問
-                    </button>
-                </div>
-            </div>
-
-            <div id="panel-chapter2" class="tab-panel">
-                <div class="card">
-                    <h2 class="chapter-title">第二章：首先，成為出色的管理者</h2>
-                    <div id="chapter2-content-panel"> <h3 class="section-title">管理的重要性</h3>
-                        <ul>
-                            <li>亞隆・艾英（UKG前執行長）認為，好主管是公司為股東價值加值的最大元素，差勁的管理則是摧毀價值的最大元素。 他強調「成為一名好主管需要無比的勇氣」。</li>
-                            <li>UKG公司創建「主管體驗指數」，並將主管40%獎金與領導技能掛鉤。</li>
-                        </ul>
-                        <h3 class="section-title">管理者的類型與心態</h3>
-                        <ul>
-                            <li><span class="highlight">無私 vs. 自我中心：</span> 無私的主管思考如何幫助團隊，培養人才，甚至為明星員工尋找更好的發展機會（如雪拉・托登所述）；自我中心的主管則先考慮自己。</li>
-                            <li>成為人才教練與開發者，能吸引人才加入。</li>
-                        </ul>
-                        <h3 class="section-title">理解人性的複雜</h3>
-                        <ul>
-                            <li>管理者需花費大量時間處理人們的情緒。 琳達・勞塞・布萊恩提到職場動能由個人「行囊裡的物品相互作用所形成」。</li>
-                            <li>被喜愛與受人敬重是不同的。</li>
-                        </ul>
-                        <h3 class="section-title">人們找主管的常見原因</h3>
-                        <ul>
-                            <li><span class="highlight">尋求肯定：</span> 人們渴望得到積極肯定，包括感謝、對工作好壞的回饋、以及個人在團隊中的重要性。 （瓊安・沙佛的觀點）</li>
-                            <li><span class="highlight">保護地盤：</span> 源於對公平性的敏感。</li>
-                            <li><span class="highlight">向上委託（猴子收容）：</span> 員工試圖將問題丟給主管。主管應賦予員工力量解決自己的問題。 （艾雷・特拉斯達赫的觀點）</li>
-                        </ul>
-                        <h3 class="section-title">SCARF模型</h3>
-                        <p>大衛・洛克提出的地位感、確定性、自主性、共事關係與公平性，是內在動機的原色。</p>
-                        <h3 class="section-title">領導力使用手冊</h3>
-                        <ul>
-                            <li>一種幫助團隊成員互相了解偏好、禁忌和怪癖的工具，以縮短適應期，更有效追求共同目標。 （伊瓦・克羅格魯德和路克・勒維斯克的實踐）</li>
-                            <li>手冊內容可包含：成長經歷、真實的自己、抓狂的事與怪癖、如何獲取最高讚賞、別人可能的誤解、最佳溝通方式、優點在特定情況下可能的缺點。</li>
-                        </ul>
-                        <h3 class="section-title">進行對話（給予和尋求回饋）</h3>
-                        <ul>
-                            <li>多數問題源於溝通不良。 卡洛・巴茲用「小狗在地毯上尿尿」比喻即時回饋的重要性。</li>
-                            <li>定期向部屬尋求回饋，了解如何更好地幫助他們。</li>
-                            <li>給予回饋時「不要越網」，即根據自己的觀感而非假設對方想法。 （安德魯・湯普森的建議）</li>
-                        </ul>
-                        <h3 class="section-title">避免微管理</h3>
-                        <ul>
-                            <li>找到授權的平衡點，可採用每週查核。 （黛博拉・法林頓的經驗）</li>
-                            <li>蘇辛德・辛格・卡⻄迪提出：「要麼你來管理我，要麼我來管理你」。</li>
-                            <li>喬治・胡建議項目初期不要「鑽牛角尖」。</li>
-                        </ul>
-                    </div>
-                    <div class="leader-profile" id="leader-mckenna-panel"> <h4 class="leader-name">莫莉・麥肯那（麥當勞全球品牌公關資深總監）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：出身大家庭，學會團隊合作與犧牲；A型性格，喜歡規劃。</li>
-                            <li>初任管理職：從團隊成員轉為領導者是艱難的轉變，早期希望被喜歡而未樹立強硬風格。</li>
-                            <li>領導風格演進：領導者是人們願意追隨並為之工作的人，「她很棒，我喜歡身為她團隊的一員」是其追求目標。</li>
-                            <li>目前努力方向：更勇敢真實地做出艱難決定，即使並非所有人都滿意。</li>
-                            <li>高階主管風範：在不同情況下對團隊與他人產生影響力，展現自信，並將功勞分享給團隊。</li>
-                        </ul>
-                         <p class="leader-quote">「領導者是人們會在今後十年記得並談論的人。」</p>
-                         <button class="gemini-button" onclick="callGeminiFeature('leader-mckenna-panel', 'insights', '莫莉・麥肯那的領導洞見')">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <div class="leader-profile" id="leader-lacey-panel"> <h4 class="leader-name">馬克・萊⻄（《紐約時報》總編輯）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：跨族裔家庭背景，幼時在牙買加生活，培養了適應力和世界觀。</li>
-                            <li>重要影響：優秀領袖對其信心有時多於自己，並耐心指導。他將老闆分為兩類：只想到自己和真心為員工高興的。</li>
-                            <li>管理風格：相信新聞工作是嚴肅但也應有趣的，並希望熱忱能感染他人。</li>
-                            <li>從管理者到領導者：意識到最重要的貢獻發生在指尖離開鍵盤時，即與人對話、討論重大想法、關注報導方向與員工士氣。</li>
-                            <li>困難的對話：「日復一日以誠待人，便會建立起良好的善意」，這有助於進行困難的對話。</li>
-                        </ul>
-                        <p class="leader-quote">「日復一日以誠待人，你便會建立起良好的善意。」</p>
-                         <button class="gemini-button" onclick="callGeminiFeature('leader-lacey-panel', 'insights', '馬克・萊⻄的領導洞見')">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <button class="gemini-button" onclick="callGeminiFeature('chapter2-content-panel', 'summarize', '第二章摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結本章內容
-                    </button>
-                    <button class="gemini-button" onclick="askChapterQuestion('chapter2-content-panel', '第二章')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                        ✨ 針對本節提問
-                    </button>
-                </div>
-            </div>
-
-            <div id="panel-chapter3" class="tab-panel">
-                <div class="card">
-                     <h2 class="chapter-title">第三章：贏得不請自來的晉升</h2>
-                    <div id="chapter3-content-panel"> <h3 class="section-title">建立廣闊的基礎</h3>
-                        <ul>
-                            <li>像蓋金字塔一樣，廣闊的底部能形成更穩固的基礎，提供更多工作保障與選項。（安妮・穆卡伊轉調人資的例子）</li>
-                            <li>專注於學習新事物和水平經驗，而非僅追求職銜。</li>
-                            <li>對機會抱持開放心態，減少挫折感。（凱倫・亞伯拉姆森的觀點）</li>
-                        </ul>
-                        <h3 class="section-title">切入車道</h3>
-                        <p>加入新環境或職位時，先了解公司文化和氛圍，再進行改革。（馬克・古姆斯的比喻）</p>
-                        <h3 class="section-title">贏下「便利貼挑戰」</h3>
-                        <p>人們會對你有個簡短的評價（優點+「但是」+缺點）。努力消除「但是」後面的質疑，透過接受不同角色來變得更全面。</p>
-                        <h3 class="section-title">切莫追逐下一份工作</h3>
-                        <ul>
-                            <li>專心將現有工作做到極致，成為可靠、值得依賴的人。（勞埃德・貝蘭克梵的建議）</li>
-                            <li>在工作範圍內拓展技能，下一份工作便會隨之而來。</li>
-                            <li>烏蘇拉・伯恩斯提到「重歸於零」的概念，即在新工作中增添價值以彌補早期學習期的投入。</li>
-                            <li>即使不是夢想中的工作，也要視為學習和改造的機會。（肯恩・倫巴德的觀點）</li>
-                            <li>鮑伯・艾格強調耐心的重要性，機會可能在你意想不到時出現。</li>
-                        </ul>
-                        <h3 class="section-title">完善做與說的比率</h3>
-                        <p>建立言出必行的名聲，可靠會帶來信任與升遷。（布雷特・威爾森的概念）</p>
-                        <h3 class="section-title">不必刻意便能建立人脈</h3>
-                        <ul>
-                            <li>透過共同參與專案或委員會來建立真誠的關係，而非僅是社交應酬。（約瑟夫・普魯默里「在車流中玩耍」的比喻）</li>
-                            <li>利用產業協會或非營利組織的機會。</li>
-                        </ul>
-                        <h3 class="section-title">導師與支持者</h3>
-                        <ul>
-                            <li>慢慢建立關係，而非直接請求對方當導師。可先就特定問題請求建議，採納後回報進展。（雪莉・雅查鮑的策略）</li>
-                            <li>支持者是在會議中為你說話的人，他們願意為你動用政治資本。</li>
-                            <li>朗妲・莫里斯建議用「我需要你的幫助」來組建導師團隊。</li>
-                            <li>準備好「電梯簡報」，以把握與高層偶遇的機會。（蘿蕊・狄克森・福奇的經驗）</li>
-                        </ul>
-                        <h3 class="section-title">讓自己被聽見（尤其對女性與有色人種）</h3>
-                        <ul>
-                            <li><span class="highlight">不開口爭取，就得不到：</span> 積極爭取想要的工作，即使會讓自己不安。（裘蒂・麥克林的經驗）</li>
-                            <li><span class="highlight">讓老闆清楚你的職涯目標：</span> 不能預設別人知道你的想法，必須大聲說出來。（鄭嘉儀的教訓）</li>
-                            <li><span class="highlight">為自己的要求說明理由：</span> 以事實為基礎，證明你的價值與成就，說明為何你最適合。</li>
-                            <li><span class="highlight">不必害怕興風作浪：</span> 在薪酬談判時，適度爭取可能反而會贏得尊重。</li>
-                            <li><span class="highlight">學習自誇的藝術：</span> 在適當時機讓他人知道你的貢獻，例如在與上司的一對一會談中提及，或歸功於團隊同時說明自己的角色。</li>
-                        </ul>
-                        <h3 class="section-title">成為問題解決者</h3>
-                        <p>解決老闆的問題，甚至他們自己都不知道的問題，能讓你快速晉升。「我來處理」（I'm on it）應成為口頭禪。</p>
-                        <h3 class="section-title">沒有所謂「正確」的道路</h3>
-                        <ul>
-                            <li>許多領導人的職涯道路迂迴難測。保持開放與警覺，從每個經歷中學習。（魯絲・席蒙斯的忠告）</li>
-                            <li>專注於自己的比賽，而非與同事比較。</li>
-                        </ul>
-                    </div>
-                    <div class="leader-profile" id="leader-lund-panel"> <h4 class="leader-name">克莉絲汀娜・倫德（愛依斯電力公司總裁暨執行長）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：重視辛勤工作、教育、幫助他人。體操運動員經歷培養了計劃能力。</li>
-                            <li>初任管理職：了解到團隊成員希望辛勤工作獲得認同，並對職涯抱負抱持開放心態。</li>
-                            <li>協作與開放式的領導風格：表現直接，尋求大量意見，包括相反觀點；流露脆弱一面，分享個人掙扎。</li>
-                            <li>躍升領導人的關鍵時刻：意識到領導不僅需要技術卓越，還需形成觀點並具說服力地溝通。</li>
-                            <li>給嶄露頭角主管的建議：確保自己可靠，讓團隊更好；具備獨特洞察力，並以具說服力的方式溝通。</li>
-                        </ul>
-                        <p class="leader-quote">「團隊成員希望他們的辛勤工作獲得認同。」</p>
-                         <button class="gemini-button" onclick="callGeminiFeature('leader-lund-panel', 'insights', '克莉絲汀娜・倫德的領導洞見')">
-                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <div class="leader-profile" id="leader-bryant-gregory-panel"> <h4 class="leader-name">格雷戈里・布萊安特（亞德諾半導體執行副總裁）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：外祖父的工程師背景啟發其運用科技解決問題的熱情；運動經驗使其將領導力視為服務。</li>
-                            <li>初任管理職：早期較沒耐心，後理解不同人有不同動機，需真誠相處。</li>
-                            <li>建立信任的策略：源於真誠，坦誠相告；協助者角色；重視與同事的關係。</li>
-                            <li>躍升領導人的時刻：在管理亞太地區公司時，首次需真正對外代表整家公司。</li>
-                            <li>指導常見主題：在策略中刻意製造異議以學習；接受衝突（非人際衝突）；放任混亂以促進創新。</li>
-                            <li>給未來領導人的建議：接受不舒服的感覺，強迫自己學習，不要害怕。</li>
-                        </ul>
-                        <p class="leader-quote">「人們必須想要跟你一起工作，並相互合作。」</p>
-                         <button class="gemini-button" onclick="callGeminiFeature('leader-bryant-gregory-panel', 'insights', '格雷戈里・布萊安特的領導洞見')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <button class="gemini-button" onclick="callGeminiFeature('chapter3-content-panel', 'summarize', '第三章摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結本章內容
-                    </button>
-                    <button class="gemini-button" onclick="askChapterQuestion('chapter3-content-panel', '第三章')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                        ✨ 針對本節提問
-                    </button>
-                </div>
-            </div>
-
-            <div id="panel-chapter4" class="tab-panel">
-                <div class="card">
-                    <h2 class="chapter-title">第四章：躍升為領導人</h2>
-                    <div id="chapter4-content-panel"> <h3 class="section-title">心態轉變</h3>
-                        <ul>
-                            <li>約翰・唐諾文：「要躍升為領導人，必須殺掉以前的自己。」 這意味著要用新的詞彙，從試算表和電郵轉向麥克風。</li>
-                            <li>專注於對組織最有益的事，而非僅對個人業務或職涯有利。</li>
-                        </ul>
-                        <h3 class="section-title">釐清個人領導價值觀</h3>
-                        <ul>
-                            <li>準備好回答「身為一名領導人，你是誰？」</li>
-                            <li>明確表達重視的事物，能劃出鼓勵與不容忍行為的界線，建立可信度與可預測性。</li>
-                            <li>思考：對你最重要的三個價值觀是什麼？如何實踐？為何重要？如何陳述領導風格？團隊成員如何描述你？</li>
-                            <li>潘・菲爾茲的領導品牌：「如果事情出錯，那是我的問題；如果事情順利，那就是他們的功勞。」</li>
-                        </ul>
-                        <h3 class="section-title">做出決策</h3>
-                        <ul>
-                            <li>領導層的工作很大一部分是處理困難或不愉快的事情。（陶德・洛瓦克的體悟）</li>
-                            <li>需更快當場做出決定，聽從直覺，因為無法獲得全部資訊或完美數據。（黛博拉・李的經驗）</li>
-                            <li>決策框架：取得團隊所有意見，營造歡迎辯論的環境；照一照「醜陋鏡」，坦然面對挑戰；當心「邏輯箱」，質疑基本假設；聆聽但最終需由領導者主持大局並做出決策；提供決策背景。</li>
-                            <li>琳達・赫德遜：「你必須接受自己的決定並承擔責任。」</li>
-                        </ul>
-                        <h3 class="section-title">設立標竿</h3>
-                        <ul>
-                            <li>在過高期望（可能打擊士氣）與過低期望（無法推動變革）之間取得平衡。</li>
-                            <li>安德烈・杜蘭德提出「幸福等於現實減去期望」的觀點，強調設定可實現目標對公司氛圍的影響。</li>
-                        </ul>
-                        <h3 class="section-title">區隔的藝術（避免身心俱疲）</h3>
-                        <ul>
-                            <li><span class="highlight">專注於最重要的事：</span> 優先處理五件以內的關鍵事項。（戴夫・戈貝爾的建議）可運用一頁策略框架（目標、三項關鍵行動、三項關鍵挑戰、如何評估成功）。 找出當天的「畢卡索」。</li>
-                            <li><span class="highlight">別被捲入人們的問題：</span> 辨別問題的真正急迫性，控制會議時間。</li>
-                            <li><span class="highlight">授權及尋求協助：</span> 領導並非一人扛起所有問題，應召集團隊共同解決。</li>
-                            <li><span class="highlight">讓自己喘口氣：</span> 放棄做到完美，接受並非所有人都會喜歡你。（蘇辛德・辛格・卡⻄迪的看法）</li>
-                            <li><span class="highlight">做對公司最有利的事：</span> 這是釐清艱難決策的簡單問題。</li>
-                        </ul>
-                        <h3 class="section-title">培養自我覺察</h3>
-                        <ul>
-                            <li>了解自身強弱項、價值觀，以及他人對你的看法（感知即事實）。</li>
-                            <li>領導者的言行舉止都會帶來巨大影響，需在狹窄的情緒區間內運作，保持可預測性。（魯本・馬克的例子）</li>
-                            <li>了解自己的觸發點和隱藏動機。</li>
-                            <li>不斷尋求回饋，照亮盲點。</li>
-                        </ul>
-                         <h3 class="section-title">培養其他領導人</h3>
-                        <ul>
-                            <li>領導者的工作包括培養接班人，建立「教練樹」是重要傳承。</li>
-                            <li>專注於培養多元化的領導人隊伍，這不僅正確，也對企業有利。 安珀・吉爾德強調多元、公平、包容性必須是工作的核心。</li>
-                            <li>提升個人文化靈敏度，投入時間與多元化的人們建立聯繫。</li>
-                        </ul>
-                        <h3 class="section-title">我們對自己說的故事（心理陷阱）</h3>
-                        <ul>
-                            <li><span class="highlight">害怕失敗：</span> 問自己「可能發生的最壞情況是什麼？」通常恐懼是無根據的。</li>
-                            <li><span class="highlight">現實不過是素材：</span> 如何看待和運用經歷取決於自己。（萊拉・賈納的觀點）</li>
-                            <li><span class="highlight">不要當受害者：</span> 受害者心態會讓人失去掌控力；應尋找挑戰中的機會。（賽斯・貝斯默特尼克的經歷）</li>
-                        </ul>
-                    </div>
-                    <div class="leader-profile" id="leader-krishnamurthy-panel"> <h4 class="leader-name">巴拉吉・克里希那穆提（雪佛龍企業戰略與永續發展副總裁）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：努力工作學習的重要性，凡事盡力做到最好。</li>
-                            <li>管理與領導的區別：管理是被要求或期望的事；領導是掌控局面，引導向更好發展並承擔結果。</li>
-                            <li>晉升中的領導經驗：透過讓員工保持專注的方式領導；提供清晰背景的重要性。</li>
-                            <li>領導最困難的部分：以平衡方式處理所有意見並做出決定；擁有「角色勇氣」；避免與現實脫節。</li>
-                            <li>建立高效能團隊：「營造一個讓團隊可以找到正確答案的環境非常重要。」</li>
-                        </ul>
-                        <p class="leader-quote">「營造一個讓團隊可以找到正確答案的環境非常重要。」</p>
-                         <button class="gemini-button" onclick="callGeminiFeature('leader-krishnamurthy-panel', 'insights', '巴拉吉・克里希那穆提的領導洞見')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <div class="leader-profile" id="leader-porray-panel"> <h4 class="leader-name">瑪莉・伊莉莎白・波瑞（安永客戶技術全球副總裁）的領導檔案重點：</h4>
-                        <ul>
-                            <li>早期影響：頻繁搬家使其堅韌且外向。</li>
-                            <li>初任管理職：早期過於嚴苛，後又矯枉過正試圖與人為友，最終找回自我。</li>
-                            <li>管理與領導的區別：管理是控制，領導是授權與移除障礙。</li>
-                            <li>躍升領導人的思維轉變：從問題解決者轉向培養他人；學會「放棄」自己喜愛的事物，以獲得新體驗並為他人創造機會。</li>
-                            <li>最終建議：「一旦你感到舒適，便需要前進到新職位。」</li>
-                        </ul>
-                        <p class="leader-quote">「一旦你感到舒適，便需要前進到新職位。」</p>
-                        <button class="gemini-button" onclick="callGeminiFeature('leader-porray-panel', 'insights', '瑪莉・伊莉莎白・波瑞的領導洞見')">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                            ✨ 提煉領導者洞見
-                        </button>
-                    </div>
-                    <button class="gemini-button" onclick="callGeminiFeature('chapter4-content-panel', 'summarize', '第四章摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結本章內容
-                    </button>
-                    <button class="gemini-button" onclick="askChapterQuestion('chapter4-content-panel', '第四章')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>
-                        ✨ 針對本節提問
-                    </button>
-                </div>
-            </div>
-
-            <div id="panel-final-philosophy" class="tab-panel">
-                <div class="card" id="final-philosophy-card-content"> <h2 class="chapter-title">總結性的領導哲學</h2>
-                    <p>領導是極限運動，主要在大腦進行，是審視自我的純粹視角。 雖然看似與你個人有關，但真正的核心是關於你能透過他人達成什麼，以及為他人取得何種成就。 凱文・沙爾認為，領導的巔峰是與同事共同完成有價值且具難度的事，並知道若非自己的決定，有些事不會發生。</p>
-                    <button class="gemini-button" onclick="callGeminiFeature('final-philosophy-card-content', 'summarize', '總結性領導哲學摘要')">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c-1.8 0-3.6.6-5 1.7l-2.4 1.2a1 1 0 0 0-.6 1V19c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V5.9a1 1 0 0 0-.6-1L17 1.7C15.6.6 13.8 0 12 0Z"></path><path d="M12 3v18"></path><path d="M18.5 10h-13"></path><path d="M18.5 14h-13"></path></svg>
-                        ✨ 總結領導哲學
-                    </button>
-                </div>
-            </div>
-        </div> <div id="geminiModal" class="modal">
-            <div class="modal-content">
-                <span class="close-button" onclick="closeModal()">&times;</span>
-                <h3 id="modalTitle" class="text-xl font-semibold mb-4 modal-title-text">Gemini 回應</h3>
-                <div id="modalBody" class="modal-body">
-                    </div>
-                <div id="loadingIndicatorModal" class="flex items-center justify-center mt-4 py-3" style="display: none;">
-                    <div class="loading-spinner"></div>
-                    <p class="text-gray-600">正在生成內容，請稍候...</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="footer">
-            <p>重點整理來源：《上位思維》</p>
-        </div>
-    </div>
-
-    <script>
-        const modal = document.getElementById('geminiModal');
-        const modalTitle = document.getElementById('modalTitle');
-        const modalBody = document.getElementById('modalBody');
-        const loadingIndicatorModal = document.getElementById('loadingIndicatorModal');
-        const userQuestionInput = document.getElementById('userQuestionInput');
-
-        function openModal(title, content) {
-            modalTitle.textContent = title;
-            modalBody.innerHTML = content.replace(/\n/g, '<br>');
-            modal.style.display = 'block';
-        }
-
-        function closeModal() {
-            modal.style.display = 'none';
-            modalBody.innerHTML = '';
-            const tempInput = document.getElementById('tempChapterQuestionInput');
-            if (tempInput && tempInput.parentElement) {
-                tempInput.parentElement.remove();
+// AI 動詞變化查詢的 Gemini API JSON Schema
+const verbConjugationSchema = {
+  type: "OBJECT",
+  properties: {
+    "language_code_provided": { "type": "STRING", "description": "The ISO 639-1 language code provided in the prompt (e.g., 'en', 'fr'). Helps AI confirm context." },
+    "verb_infinitive_src_lang": { "type": "STRING", "description": "The infinitive form of the verb in its original language." },
+    "language_name_for_display_zh_TW": { "type": "STRING", "description": "The name of the language in Traditional Chinese for display purposes (e.g., '英文', '法文')." },
+    "regularity_zh_TW": { "type": "STRING", "description": "Whether the verb is regular or irregular, in Traditional Chinese (e.g., '規則動詞', '不規則動詞')." },
+    "verb_type_zh_TW": { "type": "STRING", "description": "Type of verb in Traditional Chinese (e.g., '主要動詞', '助動詞', '情態動詞'). Optional, can be '不適用' or omitted if not clear.", "optional": true },
+    "conjugations": {
+      "type": "ARRAY",
+      "description": "Array of conjugation groups, typically by mood.",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "group_name_src_lang": { "type": "STRING", "description": "Name of the conjugation group (e.g., Mood like 'Indicatif', 'Subjonctif') in the original language. Optional.", "optional": true },
+          "group_name_zh_TW": { "type": "STRING", "description": "Name of the conjugation group in Traditional Chinese (e.g., '直陳式', '假設式')." },
+          "tenses_or_voices": {
+            "type": "ARRAY",
+            "description": "Array of tenses or voices within this group.",
+            "items": {
+              "type": "OBJECT",
+              "properties": {
+                "sub_group_name_src_lang": { "type": "STRING", "description": "Name of this specific tense or voice (e.g., Tense like 'Présent', 'Passé composé'; Voice like 'Active Voice') in the original language. Optional.", "optional": true },
+                "sub_group_name_zh_TW": { "type": "STRING", "description": "Name of this specific tense or voice in Traditional Chinese (e.g., '現在時', '複合過去時'; '主動態')." },
+                "forms": {
+                  "type": "ARRAY",
+                  "description": "List of conjugated forms for different persons/numbers.",
+                  "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "person_descriptor_src_lang": { "type": "STRING", "description": "Person/Number descriptor, ideally pronoun in original language (e.g., 'Je', 'I', 'Yo'). If not applicable, use a general descriptor." },
+                      "conjugated_form_src_lang": { "type": "STRING", "description": "The conjugated verb form in the original language." }
+                    },
+                    "required": ["person_descriptor_src_lang", "conjugated_form_src_lang"]
+                  }
+                },
+                "example_sentence_src_lang": { "type": "STRING", "description": "An example sentence in the original language using a form from this tense/voice. Optional.", "optional": true },
+                "example_sentence_translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the example sentence. Optional.", "optional": true }
+              },
+              "required": ["sub_group_name_zh_TW", "forms"]
             }
-        }
+          }
+        },
+        "required": ["group_name_zh_TW", "tenses_or_voices"]
+      }
+    },
+    "notes_zh_TW": { "type": "STRING", "description": "Any additional notes about the verb's conjugation in Traditional Chinese (e.g., common irregularities, usage notes). Optional.", "optional": true },
+    "error": { "type": "STRING", "description": "Error message if the verb cannot be processed or is not found. Optional.", "optional": true }
+  },
+  required: ["language_code_provided", "verb_infinitive_src_lang", "language_name_for_display_zh_TW", "regularity_zh_TW", "conjugations"]
+};
 
-        window.onclick = function(event) {
-            if (event.target == modal) {
-                closeModal();
-            }
-        }
+// AI 翻譯功能的 Gemini API JSON Schema
+const translationSchema = {
+  type: "OBJECT",
+  properties: {
+    "original_text": { 
+      "type": "STRING",
+      "description": "The original text that was provided for translation." 
+    },
+    "translated_text_zh_TW": { 
+      "type": "STRING", 
+      "description": "The translated text in Traditional Chinese." 
+    },
+    "source_language_code_detected": { 
+      "type": "STRING", 
+      "description": "The detected or provided ISO 639-1 language code of the original text." 
+    },
+    "error": { 
+      "type": "STRING", 
+      "description": "Error message if the translation failed.", 
+      "optional": true 
+    }
+  },
+  required: ["original_text", "translated_text_zh_TW", "source_language_code_detected"]
+};
 
-        function showTab(tabName, clickedButton) {
-            const tabPanels = document.querySelectorAll('.tab-panel');
-            tabPanels.forEach(panel => {
-                panel.classList.remove('active');
-            });
-            const targetPanel = document.getElementById(`panel-${tabName}`);
-            if (targetPanel) {
-                targetPanel.classList.add('active');
+
+// SVG Icon Components
+const TrashIcon = ({ className = "w-5 h-5" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.58.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25V4.075c.827-.05 1.66-.075 2.5-.075zM7.443 16.669a1.25 1.25 0 01-1.226-1.244l-.81-10.124a.75.75 0 011.482-.23l.81 10.124a1.25 1.25 0 01-1.244 1.226zM12.557 16.67a1.25 1.25 0 01-1.244-1.227l.81-10.124a.75.75 0 011.482.23l-.81 10.124a1.25 1.25 0 01-1.226 1.244z" clipRule="evenodd" />
+  </svg>
+);
+const SparklesIcon = ({ className = "w-5 h-5" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clipRule="evenodd" />
+  </svg>
+);
+const PlusCircleIcon = ({ className = "w-5 h-5" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.25a.75.75 0 00-1.5 0v2.5h-2.5a.75.75 0 000 1.5h2.5v2.5a.75.75 0 001.5 0v-2.5h2.5a.75.75 0 000-1.5h-2.5v-2.5z" clipRule="evenodd" />
+  </svg>
+);
+const MagnifyingGlassIcon = ({ className = "w-5 h-5" }) => ( 
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+  </svg>
+);
+const GlobeAltIcon = ({ className = "w-5 h-5" }) => ( 
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A11.978 11.978 0 0112 16.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 003 12c0 .778.099 1.533.284 2.253m0 0A11.978 11.978 0 0012 16.5c2.998 0 5.74-1.1 7.843-2.918" />
+  </svg>
+);
+const CheckCircleIcon = ({ className = "w-5 h-5" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
+  </svg>
+);
+const ChevronDownIcon = ({ className = "w-4 h-4 inline-block ml-1 transition-transform duration-200" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+  </svg>
+);
+const ChevronRightIcon = ({ className = "w-4 h-4 inline-block ml-1 transition-transform duration-200" }) => (
+ <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
+  <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+</svg>
+);
+const ArrowDownTrayIcon = ({ className = "w-5 h-5" }) => ( 
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+  </svg>
+);
+
+
+// Language mapping
+const languageCodeToName = {
+    'en': '英文',
+    'fr': '法文',
+    'ja': '日文',
+    'ko': '韓文',
+    'de': '德文',
+    'es': '西班牙文',
+    'it': '義大利文',
+    'zh': '中文', 
+};
+const getLanguageName = (code) => languageCodeToName[code] || code || '未知語言';
+
+
+// 主應用程式組件
+function App() {
+  const [userId, setUserId] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  const [urlInput, setUrlInput] = useState('');
+  const [currentArticleUrl, setCurrentArticleUrl] = useState('');
+  const [articleText, setArticleText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isVocabLoading, setIsVocabLoading] = useState(false);
+  const [isInsightLoading, setIsInsightLoading] = useState(false);
+  const [isVerbConjLoading, setIsVerbConjLoading] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false); 
+  const [error, setError] = useState('');
+
+  const [selectedText, setSelectedText] = useState('');
+  const articleDisplayRef = useRef(null);
+  const urlInputRef = useRef(null);
+
+  const [bookmarks, setBookmarks] = useState([]);
+  const [vocabulary, setVocabulary] = useState([]);
+  const [articleInsights, setArticleInsights] = useState(null);
+  const [verbToLookup, setVerbToLookup] = useState('');
+  const [verbConjugationData, setVerbConjugationData] = useState(null);
+  const [translationResult, setTranslationResult] = useState(null); 
+
+  const [showModal, setShowModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+  const [showTranslationModal, setShowTranslationModal] = useState(false); 
+
+  const [detectedLanguage, setDetectedLanguage] = useState(''); 
+  const [manualSelectedLanguage, setManualSelectedLanguage] = useState(''); 
+
+  const [selectedInsightItems, setSelectedInsightItems] = useState({}); 
+  const [verbDetailsOpenState, setVerbDetailsOpenState] = useState({}); 
+
+  useEffect(() => {
+    const styleId = 'google-font-gaegu-style';
+    if (document.getElementById(styleId)) return;
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.innerHTML = `
+      @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&display=swap');
+      body {
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+        background-color: #FDF6E3; 
+        color: #58452D; 
+      }
+      .font-gaegu { 
+        font-family: 'Gaegu', cursive;
+      }
+      .hand-drawn-border {
+        border: 2px solid #A98C6A; 
+        border-radius: 12px; 
+        box-shadow: 3px 3px 0px #D5C4A1; 
+      }
+      .hand-drawn-button {
+        font-family: 'Gaegu', cursive; 
+        border: 2px solid #A98C6A;
+        border-radius: 8px;
+        box-shadow: 2px 2px 0px #D5C4A1;
+        transition: all 0.1s ease-in-out;
+      }
+      .hand-drawn-button:hover {
+        transform: translate(1px, 1px);
+        box-shadow: 1px 1px 0px #D5C4A1;
+      }
+      .hand-drawn-button:active {
+        transform: translate(2px, 2px);
+        box-shadow: none;
+      }
+      .prose-custom { 
+        color: #58452D; 
+        line-height: 1.8; 
+      }
+      .prose-custom p, .prose-custom li, .prose-custom strong, .prose-custom em {
+        color: #58452D;
+      }
+       .prose-custom h1, .prose-custom h2, .prose-custom h3 {
+        color: #8C6D46; 
+        border-bottom: 2px dashed #A98C6A; 
+        padding-bottom: 0.3em;
+      }
+      .section-title-gaegu {
+        font-family: 'Gaegu', cursive;
+      }
+      details > summary {
+        cursor: pointer;
+        font-weight: bold;
+        padding: 0.6em 0.85em; 
+        background-color: #f0eade; 
+        border-radius: 4px;
+        margin-bottom: 0.4em; 
+        border: 1px solid #d5c4a1;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        transition: background-color 0.2s ease-in-out;
+      }
+      details > summary:hover {
+        background-color: #e8dcc8;
+      }
+      details[open] > summary {
+        background-color: #e0d3bc;
+      }
+      details > div {
+        padding: 0.85em 1.35em; 
+        border: 1px dashed #d5c4a1; 
+        border-top: none;
+        border-radius: 0 0 4px 4px;
+        background-color: #fdf9f0; 
+      }
+      .clickable-word {
+        cursor: pointer;
+        padding: 0.05em 0.15em; 
+        border-radius: 3px;
+        transition: background-color 0.2s;
+      }
+      .clickable-word:hover {
+        background-color: #fee2b3; 
+      }
+      .clickable-word-selected {
+        background-color: #fcd34d; 
+        font-weight: bold;
+      }
+      .verb-mood-summary {
+        background-color: #ede7f6 !important; 
+        color: #5e35b1 !important; 
+        border-bottom: 1px dashed #b39ddb !important; 
+      }
+      .verb-mood-summary:hover {
+        background-color: #d1c4e9 !important; 
+      }
+      details[open] > .verb-mood-summary {
+        background-color: #b39ddb !important; 
+        color: #ffffff !important; 
+      }
+      .verb-tense-summary {
+        background-color: #e3f2fd !important; 
+        color: #1e88e5 !important; 
+        font-size: 0.95em; 
+        border-bottom: 1px dashed #90caf9 !important; 
+        margin-left: 0.6rem; 
+        margin-right: 0.6rem; 
+      }
+      .verb-tense-summary:hover {
+        background-color: #bbdefb !important; 
+      }
+      details[open] > .verb-tense-summary {
+        background-color: #90caf9 !important; 
+        color: #0d47a1 !important; 
+      }
+      .verb-forms-list li { 
+        padding: 0.35rem 0; 
+        border-bottom: 1px dotted #e0e0e0; 
+      }
+      .verb-forms-list li:last-child {
+        border-bottom: none; 
+      }
+      .verb-example-sentence { 
+        margin-top: 0.85rem; 
+        padding: 0.85rem; 
+        background-color: #f5f5f5; 
+        border-radius: 4px;
+        border-left: 3px solid #7e57c2; 
+        font-style: normal; 
+      }
+      .verb-example-sentence p {
+         margin-bottom: 0.3rem; 
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      const styleElement = document.getElementById(styleId);
+      if (styleElement && styleElement.parentNode) {
+        styleElement.parentNode.removeChild(styleElement);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserId(user.uid);
+      } else {
+        try {
+          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+            await signInWithCustomToken(auth, __initial_auth_token);
+          } else {
+            await signInAnonymously(auth); 
+          }
+        } catch (e) {
+          console.error("Firebase Auth Error: ", e);
+          setError("認證失敗，部分功能可能無法使用。");
+          setUserId('anonymous_' + Date.now()); 
+        }
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe(); 
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady || !userId) return; 
+
+    // --- Firestore 索引重要提示 ---
+    // 為了讓 orderBy("createdAt", "desc") 高效運作並避免 Firebase 在控制台中顯示警告/錯誤，
+    // 請確保您已在 Firestore 資料庫中建立了相應的複合索引。
+    //
+    // 對於書籤 (bookmarks):
+    //   集合路徑 (Collection Path): artifacts/{appId}/users/{userId}/languageLearnerBookmarks
+    //   欄位 (Field): createdAt, 排序 (Order): 遞減 (Descending)
+    //
+    // 對於生字簿 (vocabulary):
+    //   集合路徑 (Collection Path): artifacts/{appId}/users/{userId}/languageLearnerVocabulary
+    //   欄位 (Field): createdAt, 排序 (Order): 遞減 (Descending)
+    //
+    // 如果索引缺失，Firebase 控制台通常會提供一個直接連結來幫助您建立這些索引。
+    // --------------------------
+
+    const bookmarksPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks`;
+    const bookmarksQuery = query(collection(db, bookmarksPath), orderBy("createdAt", "desc"));
+    const unsubBookmarks = onSnapshot(bookmarksQuery, (snapshot) => {
+      setBookmarks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => { 
+      console.error("載入書籤時發生 Firestore 錯誤:", err); 
+      setError(`無法載入書籤：${err.message}`); 
+    });
+
+    const vocabPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary`;
+    const vocabQuery = query(collection(db, vocabPath), orderBy("createdAt", "desc"));
+    const unsubVocab = onSnapshot(vocabQuery, (snapshot) => {
+      setVocabulary(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (err) => { 
+      console.error("載入生字簿時發生 Firestore 錯誤:", err); 
+      setError(`無法載入生字簿：${err.message}`); 
+    });
+    
+    return () => {
+      unsubBookmarks();
+      unsubVocab();
+    };
+  }, [isAuthReady, userId, appId]); // Added appId to dependency array as it's used in path
+
+  const featureLanguage = manualSelectedLanguage || detectedLanguage;
+  const featureLanguageName = getLanguageName(featureLanguage);
+
+  const detectLanguageOfText = async (textToDetect) => {
+    if (!textToDetect || textToDetect.trim().length < 20) { 
+        console.warn("Text too short for reliable language detection or empty.");
+        return 'unknown'; 
+    }
+    const snippet = textToDetect.substring(0, 500); 
+    const prompt = `Detect the language of the following text. Respond ONLY with the two-letter ISO 639-1 language code (e.g., "en" for English, "fr" for French, "ja" for Japanese, "ko" for Korean, "de" for German, "es" for Spanish, "it" for Italian). Text: "${snippet}"`;
+    try {
+        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = { contents: chatHistory };
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: "無法解析語言偵測錯誤回應" }));
+            console.error("Gemini API error for language detection:", errorData);
+            throw new Error(`語言偵測失敗 (HTTP ${response.status}). ${errorData.error?.message || errorData.message || ''}`);
+        }
+        const result = await response.json();
+        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+            const langCode = result.candidates[0].content.parts[0].text.trim().toLowerCase().substring(0, 2); 
+            const supportedCodes = Object.keys(languageCodeToName); 
+            if (supportedCodes.includes(langCode)) {
+                return langCode;
             } else {
-                console.error(`Panel with ID 'panel-${tabName}' not found.`);
+                console.warn(`Detected language code "${langCode}" is not in the primary supported list or is unclear. Full response: ${result.candidates[0].content.parts[0].text}`);
+                return 'unknown'; 
             }
+        } else {
+            console.error("Unexpected Gemini API response structure for language detection:", result);
+            throw new Error("無法解析語言偵測回應。");
+        }
+    } catch (e) {
+        console.error("Language detection error:", e);
+        throw e; 
+    }
+};
 
-            const tabButtons = document.querySelectorAll('.tab-button');
-            tabButtons.forEach(button => {
-                button.classList.remove('active');
-            });
+  const handleFetchArticle = async () => {
+    if (!urlInput.trim()) {
+      setModalMessage("請輸入網址。");
+      setShowModal(true);
+      return;
+    }
+    setIsLoading(true); setError(''); setArticleText(''); setCurrentArticleUrl(''); setSelectedText('');
+    setArticleInsights(null); setDetectedLanguage(''); setVerbConjugationData(null); setTranslationResult(null);
+    setSelectedInsightItems({}); 
+    setVerbDetailsOpenState({}); 
+    
+    try {
+      const prompt = `Extract the main textual content from the following URL. Return the text in its original language. Preserve paragraph breaks if possible. Do not summarize or add any commentary. URL: ${urlInput}`;
+      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+      const payload = { contents: chatHistory };
+      const apiKey = ""; 
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) { 
+        const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
+        console.error("Gemini API error for article fetch:", errorData);
+        throw new Error(`無法從網址提取內容 (HTTP ${response.status})。${errorData.error?.message || errorData.message || ''}`); 
+      }
+      const result = await response.json();
+      if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+        const fullArticleText = result.candidates[0].content.parts[0].text;
+        setArticleText(fullArticleText);
+        setCurrentArticleUrl(urlInput);
 
-            if (clickedButton) {
-                clickedButton.classList.add('active');
+        try {
+            const langCode = await detectLanguageOfText(fullArticleText);
+            setDetectedLanguage(langCode); 
+            if (!manualSelectedLanguage && (langCode === 'unknown' || !languageCodeToName[langCode])) {
+                 setModalMessage(`成功提取文章內容，但無法明確偵測其語言 ("${getLanguageName(langCode)}")，或該語言目前未完全支援。部分 AI 功能可能表現不如預期。您也可以嘗試手動選擇語言。`);
+                 setShowModal(true);
+            } else if (manualSelectedLanguage && langCode !== manualSelectedLanguage && langCode !== 'unknown') {
+                setModalMessage(`提醒：文章偵測到的語言為 ${getLanguageName(langCode)}，但您已手動選擇 ${getLanguageName(manualSelectedLanguage)}。相關功能將優先使用手動選擇的語言。`);
+                setShowModal(true);
             }
+        } catch (langDetectError) {
+            console.error("Language detection failed after fetching article:", langDetectError);
+            setError(prev => `${prev}\n語言偵測失敗: ${langDetectError.message}`); 
+            setModalMessage(`文章提取成功，但語言偵測失敗：${langDetectError.message}。AI 功能可能受影響。請嘗試手動選擇語言。`);
+            setShowModal(true);
+            setDetectedLanguage('unknown'); 
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            // HTML already sets the first tab as active by default
-            // No need to call showTab here explicitly for initialization
-        });
+      } else { 
+        console.error("Unexpected Gemini API response structure for article fetch:", result);
+        throw new Error("無法解析提取的內容。回應格式不符預期。"); 
+      }
+    } catch (e) { 
+      console.error("Fetch article error:", e);
+      const errorMessage = `提取文章失敗：${e.message}`;
+      setError(errorMessage);
+      setModalMessage(errorMessage);
+      setShowModal(true);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-        function getTextFromElement(elementId) {
-            const contentElement = document.getElementById(elementId);
-            if (!contentElement) {
-                console.warn(`getTextFromElement: Element with ID '${elementId}' not found.`);
-                return '';
-            }
+  const handleChangeSource = () => {
+    setUrlInput(''); setCurrentArticleUrl(''); setArticleText(''); setSelectedText(''); setError('');
+    setArticleInsights(null);
+    setDetectedLanguage(''); 
+    setManualSelectedLanguage(''); 
+    setVerbToLookup('');
+    setVerbConjugationData(null);
+    setTranslationResult(null);
+    setSelectedInsightItems({}); 
+    setVerbDetailsOpenState({}); 
+    if (articleDisplayRef.current) articleDisplayRef.current.scrollTop = 0; 
+    if (urlInputRef.current) urlInputRef.current.focus(); 
+  };
 
-            let textToProcess = '';
-            
-            if (elementId.startsWith('leader-') && elementId.endsWith('-panel')) {
-                const texts = [];
-                contentElement.querySelectorAll('h4, li, p.leader-quote').forEach(el => texts.push(el.innerText));
-                textToProcess = texts.join('\n');
-            } else if (elementId.endsWith('-content-panel') || (elementId.endsWith('-card-content'))) {
-                let mainContent = '';
-                const sections = contentElement.querySelectorAll('h2.chapter-title, h3.section-title, ul, p');
-                if (sections.length > 0) {
-                    mainContent = Array.from(sections).map(el => {
-                        if (el.tagName === 'UL') {
-                            return Array.from(el.querySelectorAll('li')).map(li => `- ${li.innerText}`).join('\n');
-                        }
-                        return el.innerText;
-                    }).join('\n\n');
-                } else {
-                    mainContent = contentElement.innerText;
-                }
-                textToProcess = mainContent;
-
-            } else {
-                 textToProcess = contentElement.innerText;
-            }
-
-            textToProcess = textToProcess.replace(/✨.*?提煉領導者洞見/g, '')
-                                         .replace(/✨.*?總結.*?內容/g, '')
-                                         .replace(/✨.*?針對本節提問/g, '')
-                                         .replace(/請教 Gemini/g, '')
-                                         .trim();
-            return textToProcess;
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const container = range.commonAncestorContainer;
+        if (articleDisplayRef.current && articleDisplayRef.current.contains(container) && 
+            (!selection.anchorNode || !selection.anchorNode.parentElement.classList.contains('clickable-word'))) {
+            const text = selection.toString().trim();
+            if (text && text !== selectedText) setSelectedText(text); 
+            else if (!text && selectedText) setSelectedText(''); 
+        } else if (!articleDisplayRef.current || !articleDisplayRef.current.contains(container)) {
+            if (selectedText) setSelectedText('');
         }
+    } else {
+        if (selectedText) setSelectedText(''); 
+    }
+  };
 
-        async function executeGeminiCall(prompt, displayTitle) {
-            loadingIndicatorModal.style.display = 'flex';
-            modalBody.innerHTML = '';
-            openModal(displayTitle, '');
+  const handleWordClick = (word) => {
+    const cleanedWord = word.replace(/[.,!?;:"“”‘’()]$/g, '').trim(); 
+    if (cleanedWord) {
+      setSelectedText(cleanedWord); 
+    }
+  };
+ 
+  const addBookmark = async () => {
+    const langForBookmark = manualSelectedLanguage || detectedLanguage || 'unknown';
+    if (!currentArticleUrl || !userId) { 
+        setModalMessage("沒有可收藏的文章 URL 或使用者未登入。"); setShowModal(true); return; 
+    }
+    const existingBookmark = bookmarks.find(b => b.url === currentArticleUrl);
+    if (existingBookmark) { 
+        setModalMessage("這篇文章已經在您的收藏中了！"); setShowModal(true); return; 
+    }
+    const tempLoadingSetter = setIsLoading; 
+    tempLoadingSetter(true); 
+    try {
+      const bookmarksCollectionPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks`;
+      const title = articleText.substring(0, 100) + (articleText.length > 100 ? '...' : '') || currentArticleUrl; 
+      await addDoc(collection(db, bookmarksCollectionPath), {
+        url: currentArticleUrl, 
+        title: title, 
+        detectedLanguage: detectedLanguage || 'unknown', 
+        language: langForBookmark, 
+        createdAt: serverTimestamp() 
+      });
+      setModalMessage("文章已成功收藏！"); setShowModal(true);
+    } catch (e) { 
+        console.error("Error adding bookmark:", e);
+        const errorMessage = `收藏文章失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+    } finally { tempLoadingSetter(false); }
+  };
 
-            try {
-                const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-                const payload = { contents: chatHistory };
-                const apiKey = "";
-                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+  const removeBookmark = async (bookmarkId) => {
+    if (!userId) return;
+    const tempLoadingSetter = setIsLoading;
+    tempLoadingSetter(true); 
+    try {
+      const bookmarkDocPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks/${bookmarkId}`;
+      await deleteDoc(doc(db, bookmarkDocPath));
+      setModalMessage("收藏已移除。"); setShowModal(true);
+    } catch (e) { 
+        console.error("Error removing bookmark:", e);
+        const errorMessage = `移除收藏失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+    } finally { tempLoadingSetter(false); }
+  };
 
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+  const loadBookmarkedArticle = (url, lang) => { 
+    setUrlInput(url); 
+    setArticleText(''); 
+    setCurrentArticleUrl(''); 
+    setSelectedText(''); 
+    setArticleInsights(null);
+    setDetectedLanguage(''); 
+    setManualSelectedLanguage(lang || ''); 
+    setVerbToLookup('');
+    setVerbConjugationData(null);
+    setTranslationResult(null);
+    setSelectedInsightItems({});
+    setVerbDetailsOpenState({});
+    setError('');
+    setTimeout(() => handleFetchArticle(), 0); 
+  };
+ 
+  const addVocabEntry = async (term, definition_src_lang = '', translation_zh_TW = '', example_sentence_src_lang = '') => {
+    const termToAdd = term || selectedText; 
+    if (!termToAdd || !userId) { 
+        setModalMessage("沒有選取的文字或使用者未登入。"); setShowModal(true); return false; 
+    }
+    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
+        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法加入生字簿。請先確認文章已正確載入並偵測到語言，或手動選擇一個有效語言。`);
+        setShowModal(true);
+        return false;
+    }
+
+    const existingVocab = vocabulary.find(v => v.word.toLowerCase() === termToAdd.toLowerCase() && v.language === featureLanguage);
+    if (existingVocab) { 
+        setModalMessage(`「${termToAdd}」(${featureLanguageName}) 已經在您的生字簿中了！`); setShowModal(true); return false; 
+    }
+    setIsVocabLoading(true); setError('');
+    try {
+      let vocabData = {
+        definitions: definition_src_lang && typeof definition_src_lang === 'string' ? [definition_src_lang] : (Array.isArray(definition_src_lang) ? definition_src_lang : []),
+        translation_zh_TW: translation_zh_TW || '',
+        example_sentence: example_sentence_src_lang || '',
+      };
+
+      if (!definition_src_lang || !translation_zh_TW || !example_sentence_src_lang) {
+        const currentLangNameForPrompt = getLanguageName(featureLanguage); 
+        const prompt = `For the ${currentLangNameForPrompt} word or short phrase '${termToAdd}', provide: 
+        1. Up to 2 common definitions in ${currentLangNameForPrompt}. 
+        2. Its translation to Traditional Chinese. 
+        3. One example sentence using the word/phrase in ${currentLangNameForPrompt}. 
+        Respond ONLY with a JSON object matching this schema: { "definitions": ["definition1 in ${currentLangNameForPrompt}", "definition2 in ${currentLangNameForPrompt}"], "translation_zh_TW": "中文翻譯", "example_sentence": "Example sentence in ${currentLangNameForPrompt} here." }. 
+        If it's not a valid word/phrase or you cannot provide this information, include an "error" field in your JSON response, like { "error": "Could not process." }.`;
+        
+        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = {
+          contents: chatHistory,
+          generationConfig: { responseMimeType: "application/json", responseSchema: vocabGenerationSchema }
+        };
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
+            throw new Error(`AI 查詢失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+        }
+        const result = await response.json();
+        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+          const parsedResult = JSON.parse(result.candidates[0].content.parts[0].text);
+          if (parsedResult.error) throw new Error(`AI 無法處理 「${termToAdd}」：${parsedResult.error}`);
+          if (!parsedResult.definitions || !parsedResult.translation_zh_TW || !parsedResult.example_sentence) throw new Error(`AI 回應缺少必要資訊。`);
+          vocabData = parsedResult; 
+        } else throw new Error("AI 回應格式不符預期。");
+      }
+
+      const vocabCollectionPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary`;
+      await addDoc(collection(db, vocabCollectionPath), {
+        word: termToAdd, 
+        language: featureLanguage, 
+        definitions: Array.isArray(vocabData.definitions) ? vocabData.definitions : [vocabData.definitions].filter(Boolean), 
+        translation_zh_TW: vocabData.translation_zh_TW,
+        example_sentence: vocabData.example_sentence,
+        articleUrl: currentArticleUrl || 'general', 
+        createdAt: serverTimestamp()
+      });
+      setModalMessage(`「${termToAdd}」 (${featureLanguageName}) 已成功加入生字簿！`); setShowModal(true);
+      return true; 
+    } catch (e) { 
+        console.error("Error adding vocab entry:", e);
+        const errorMessage = `加入生字簿失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+        return false; 
+    } finally { setIsVocabLoading(false); }
+  };
+
+  const removeVocabEntry = async (vocabId) => {
+    if (!userId) return;
+    const tempLoadingSetter = setIsLoading; 
+    tempLoadingSetter(true); 
+    try {
+      const vocabDocPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary/${vocabId}`;
+      await deleteDoc(doc(db, vocabDocPath));
+      setModalMessage("生字已移除。"); setShowModal(true);
+    } catch (e) { 
+        console.error("Error removing vocab entry:", e);
+        const errorMessage = `移除生字失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+    } finally { tempLoadingSetter(false); }
+  };
+
+  const getRenderedArticleText = useCallback(() => {
+    if (!articleText && !isLoading) return <p className="text-stone-500 p-4">請輸入網址並點擊「讀取文章」以開始。</p>;
+    if (isLoading && !articleText) return <p className="text-stone-500 p-4">正在努力讀取文章中...</p>;
+    
+    const lines = articleText.split('\n'); 
+    return lines.map((line, lineIndex) => {
+        const segments = line.split(/(\s+|[.,!?;:"“”‘’()])/g).filter(Boolean); 
+
+        return (
+            <p key={`line-${lineIndex}`} className="mb-4"> 
+                {segments.map((segment, segmentIndex) => {
+                    const isWhitespaceOrPunctuation = /^\s+$|^[.,!?;:"“”‘’()]$/.test(segment);
+                    
+                    if (isWhitespaceOrPunctuation) {
+                        return <React.Fragment key={`segment-ws-${lineIndex}-${segmentIndex}`}>{segment}</React.Fragment>;
+                    }
+                    
+                    const isSelectedWord = selectedText === segment && segment !== '';
+
+                    return (
+                        <span
+                            key={`word-${lineIndex}-${segmentIndex}`}
+                            className={`clickable-word ${isSelectedWord ? 'clickable-word-selected' : ''}`}
+                            onClick={() => handleWordClick(segment)} 
+                        >
+                            {segment}
+                        </span>
+                    );
+                })}
+            </p>
+        );
+    });
+  }, [articleText, isLoading, selectedText]); 
+
+  const handleFetchArticleInsights = async () => {
+    if (!articleText || !userId) { 
+        setModalMessage("沒有文章內容或使用者未登入。"); setShowModal(true); return; 
+    }
+    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
+        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法進行深度分析。`);
+        setShowModal(true);
+        return;
+    }
+    setIsInsightLoading(true); setError(''); setArticleInsights(null); setSelectedInsightItems({}); 
+    try {
+      const currentLangNameForPrompt = getLanguageName(featureLanguage);
+      const prompt = `請分析以下${currentLangNameForPrompt}文章，並提供學習洞察。文章內容如下：\n\n"${articleText}"\n\n請嚴格依照以下JSON格式回傳，包含重點單字、實用片語和文法結構亮點。
+      - 對於「重點單字」(key_vocabulary):
+          - "word": The vocabulary word in ${currentLangNameForPrompt}.
+          - "definition_en": Concise definition of the word in ${currentLangNameForPrompt}. (Even though field name is _en, provide in ${currentLangNameForPrompt})
+          - "translation_zh_TW": Traditional Chinese translation of the word.
+          - "example_sentence_from_article": The exact sentence from the article in ${currentLangNameForPrompt} containing the word.
+      - 對於「實用片語」(useful_phrases):
+          - "phrase": The phrase or idiom in ${currentLangNameForPrompt}.
+          - "meaning_en": Concise meaning of the phrase in ${currentLangNameForPrompt}. (Even though field name is _en, provide in ${currentLangNameForPrompt})
+          - "translation_zh_TW": Traditional Chinese translation of the phrase.
+          - "example_sentence_from_article": The exact sentence from the article in ${currentLangNameForPrompt} containing the phrase.
+      - 對於「文法結構亮點」(grammar_highlights):
+          - "grammar_point_name_zh_TW": Name of the grammar point in Traditional Chinese (e.g., '${currentLangNameForPrompt}的過去完成式', '${currentLangNameForPrompt}的被動語態').
+          - "explanation_zh_TW": Brief (1-2 sentences) explanation of the grammar rule in Traditional Chinese, focusing on its use in the example from the ${currentLangNameForPrompt} article.
+          - "example_sentence_from_article": The exact sentence from the ${currentLangNameForPrompt} article showcasing this grammar point.`;
+
+      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+      const payload = {
+        contents: chatHistory,
+        generationConfig: { responseMimeType: "application/json", responseSchema: insightGenerationSchema }
+      };
+      const apiKey = ""; 
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
+        console.error("Gemini API error for insights:", errorData);
+        throw new Error(`AI 深度分析失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+      }
+      const result = await response.json();
+      if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+        const insightsData = JSON.parse(result.candidates[0].content.parts[0].text);
+        if (insightsData && insightsData.key_vocabulary && insightsData.useful_phrases && insightsData.grammar_highlights) {
+            setArticleInsights(insightsData);
+        } else {
+            console.error("AI 深度分析回應 JSON 結構不完整:", insightsData);
+            throw new Error("AI 深度分析回應的資料結構不完整。");
+        }
+      } else { 
+        console.error("Unexpected Gemini API response structure for insights:", result);
+        throw new Error("AI 深度分析回應格式不符預期。"); 
+      }
+    } catch (e) { 
+        console.error("Error fetching article insights:", e);
+        const errorMessage = `AI 深度分析失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+    } finally { setIsInsightLoading(false); }
+  };
+
+  const handleToggleInsightItemSelection = (itemKey) => { 
+    setSelectedInsightItems(prev => ({ 
+      ...prev,
+      [itemKey]: !prev[itemKey] 
+    }));
+  };
+
+  const handleBulkAddSelectedInsightItems = async () => { 
+    const vocabItemsToAdd = articleInsights?.key_vocabulary?.filter(item => selectedInsightItems[item.word]) || [];
+    const phraseItemsToAdd = articleInsights?.useful_phrases?.filter(item => selectedInsightItems[item.phrase]) || [];
+
+    if (vocabItemsToAdd.length === 0 && phraseItemsToAdd.length === 0) {
+      setModalMessage("請先勾選要加入的單字或片語。");
+      setShowModal(true);
+      return;
+    }
+
+    setIsVocabLoading(true); 
+    let successCount = 0;
+    let alreadyExistsCount = 0;
+    let errorCount = 0;
+
+    for (const item of vocabItemsToAdd) {
+      const existingVocab = vocabulary.find(v => v.word.toLowerCase() === item.word.toLowerCase() && v.language === featureLanguage);
+      if (existingVocab) {
+        alreadyExistsCount++;
+        continue; 
+      }
+      const added = await addVocabEntry(item.word, item.definition_en, item.translation_zh_TW, item.example_sentence_from_article);
+      if (added) {
+        successCount++;
+      } else {
+        errorCount++; 
+      }
+    }
+
+    for (const item of phraseItemsToAdd) {
+      const existingVocab = vocabulary.find(v => v.word.toLowerCase() === item.phrase.toLowerCase() && v.language === featureLanguage);
+      if (existingVocab) {
+        alreadyExistsCount++;
+        continue;
+      }
+      const added = await addVocabEntry(item.phrase, item.meaning_en, item.translation_zh_TW, item.example_sentence_from_article);
+      if (added) {
+        successCount++;
+      } else {
+        errorCount++;
+      }
+    }
+
+    setIsVocabLoading(false);
+
+    let summaryMessage = `批次加入完成：\n- ${successCount} 個新項目 (單字/片語) 成功加入。\n- ${alreadyExistsCount} 個項目已存在生字簿中。`;
+    if (errorCount > 0) {
+      summaryMessage += `\n- ${errorCount} 個項目加入失敗 (詳見先前錯誤訊息)。`;
+    }
+    setModalMessage(summaryMessage);
+    setShowModal(true);
+    setSelectedInsightItems({}); 
+  };
+
+
+  const handleFetchVerbConjugation = async () => {
+    if (!verbToLookup.trim()) {
+        setModalMessage("請輸入要查詢的動詞。"); setShowModal(true); return;
+    }
+    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
+        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法查詢動詞變化。請先載入文章並確認語言，或手動選擇一個有效語言。`);
+        setShowModal(true);
+        return;
+    }
+    setIsVerbConjLoading(true); setError(''); setVerbConjugationData(null); setVerbDetailsOpenState({}); 
+    try {
+        const currentLangNameForPrompt = getLanguageName(featureLanguage);
+        const prompt = `You are a linguistics expert specializing in verb conjugations. The user wants to understand how the ${currentLangNameForPrompt} verb '${verbToLookup}' is conjugated. The language code for ${currentLangNameForPrompt} is '${featureLanguage}'.
+Please provide a detailed conjugation for the verb.
+Respond ONLY with a JSON object adhering to the schema provided in the 'generationConfig.responseSchema'.
+Key instructions for the JSON content:
+- 'language_code_provided': This should be '${featureLanguage}'.
+- 'verb_infinitive_src_lang': The infinitive (base) form of '${verbToLookup}' in ${currentLangNameForPrompt}.
+- 'language_name_for_display_zh_TW': This should be '${currentLangNameForPrompt}'.
+- 'regularity_zh_TW': Describe if the verb is regular or irregular in Traditional Chinese (e.g., '規則動詞', '不規則動詞').
+- 'verb_type_zh_TW': Specify the type of verb in Traditional Chinese (e.g., '主要動詞', '助動詞', '情態動詞'). If not applicable or unknown, you can state '不適用' or omit the field if schema allows.
+- 'conjugations': This is an array. Each item represents a major conjugation category, usually a mood.
+  - 'group_name_src_lang': The name of this category (e.g., mood like 'Indicatif', 'Subjonctif') in ${currentLangNameForPrompt}. This is optional but preferred.
+  - 'group_name_zh_TW': The name of this category in Traditional Chinese (e.g., '直陳式', '假設式').
+  - 'tenses_or_voices': This is an array. Each item represents a sub-category, typically a tense or a voice within the main group.
+    - 'sub_group_name_src_lang': The name of this sub-category (e.g., tense like 'Présent', 'Passé composé'; voice like 'Active Voice') in ${currentLangNameForPrompt}. Optional but preferred.
+    - 'sub_group_name_zh_TW': The name of this sub-category in Traditional Chinese (e.g., '現在時', '複合過去時'; '主動態').
+    - 'forms': This is an array of conjugated forms.
+      - 'person_descriptor_src_lang': The person/number identifier, ideally the pronoun in ${currentLangNameForPrompt} (e.g., for French: 'Je', 'Tu', 'Il/Elle/On', 'Nous', 'Vous', 'Ils/Elles'; for English: 'I', 'You', 'He/She/It', 'We', 'They'). If specific pronouns are not standard for listing (e.g., for Japanese), use a general descriptor in ${currentLangNameForPrompt} or a Traditional Chinese descriptor like '第一人稱單數'.
+      - 'conjugated_form_src_lang': The actual conjugated verb form in ${currentLangNameForPrompt}.
+    - 'example_sentence_src_lang': An example sentence in ${currentLangNameForPrompt} that uses one of the forms from this sub-group. This is optional.
+    - 'example_sentence_translation_zh_TW': The Traditional Chinese translation of the example sentence. This is optional.
+- 'notes_zh_TW': Any additional relevant notes about the verb's conjugation, usage, or irregularities, in Traditional Chinese. This is optional.
+If the verb '${verbToLookup}' is invalid for ${currentLangNameForPrompt}, cannot be found, or if you cannot provide the conjugation information as requested, your JSON response should include an 'error' field explaining the issue (e.g., { 'error': '無法處理此動詞或在${currentLangNameForPrompt}中找不到此動詞。' }). Ensure the rest of the main required fields are still present if possible, perhaps with placeholder or 'N/A' values if the error is partial.`;
+
+        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = {
+            contents: chatHistory,
+            generationConfig: { responseMimeType: "application/json", responseSchema: verbConjugationSchema }
+        };
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: "無法解析動詞變化錯誤回應" }));
+            console.error("Gemini API error for verb conjugation:", errorData);
+            throw new Error(`AI 動詞變化查詢失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+        }
+        const result = await response.json();
+        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+            const conjugationResult = JSON.parse(result.candidates[0].content.parts[0].text);
+            if (conjugationResult.error) {
+                setModalMessage(`AI 無法處理動詞「${verbToLookup}」(${currentLangNameForPrompt})：${conjugationResult.error}`);
+                setShowModal(true);
+                setVerbConjugationData({ error: conjugationResult.error, verb_infinitive_src_lang: verbToLookup, language_name_for_display_zh_TW: currentLangNameForPrompt });
+            } else if (conjugationResult.conjugations) {
+                setVerbConjugationData(conjugationResult);
+                const initialOpenState = {};
+                conjugationResult.conjugations.forEach((mood, moodIndex) => {
+                    initialOpenState[`mood-${moodIndex}`] = moodIndex === 0; 
+                    mood.tenses_or_voices.forEach((tense, tenseIndex) => {
+                        initialOpenState[`mood-${moodIndex}-tense-${tenseIndex}`] = moodIndex === 0 && tenseIndex === 0; 
+                    });
                 });
+                setVerbDetailsOpenState(initialOpenState);
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(`API 請求失敗 (${response.status}): ${errorData?.error?.message || '未知錯誤'}`);
-                }
-                const result = await response.json();
-                if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-                    modalBody.innerHTML = result.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
-                } else {
-                    throw new Error('從 API 收到的回應格式無效。');
-                }
-            } catch (error) {
-                console.error('Gemini API Call Error:', error);
-                modalBody.textContent = `發生錯誤：${error.message} 請檢查瀏覽器控制台以獲取更多資訊。`;
-            } finally {
-                loadingIndicatorModal.style.display = 'none';
-            }
-        }
-
-        async function callGeminiFeature(elementId, featureType, displayTitle) {
-            const textToProcess = getTextFromElement(elementId);
-            if (!textToProcess.trim()) {
-                openModal(displayTitle, '錯誤：找不到可處理的文字內容。');
-                loadingIndicatorModal.style.display = 'none';
-                return;
-            }
-
-            let prompt;
-            if (featureType === 'summarize') {
-                prompt = `請根據以下這段關於《上位思維》書中 ${displayTitle.replace('摘要','')} 的文本，提供一個簡潔的摘要，摘要內容需包含原文的核心觀點和主要教訓。請用臺灣繁體中文回答。\n\n文本內容：\n${textToProcess}`;
-            } else if (featureType === 'insights') {
-                prompt = `請從以下關於《上位思維》書中 ${displayTitle.replace('的領導洞見','')} 的分享文本中，提煉出3-5個關鍵的領導力洞見或實用建議，並以條列方式呈現。請用臺灣繁體中文回答。\n\n文本內容：\n${textToProcess}`;
             } else {
-                openModal(displayTitle, '錯誤：未知的請求類型。');
-                loadingIndicatorModal.style.display = 'none';
-                return;
+                 throw new Error("AI 動詞變化回應缺少必要資訊 (conjugations)。");
             }
-            await executeGeminiCall(prompt, displayTitle);
+        } else {
+            console.error("Unexpected Gemini API response structure for verb conjugation:", result);
+            throw new Error("AI 動詞變化回應格式不符預期。");
         }
+    } catch (e) {
+        console.error("Error fetching verb conjugation:", e);
+        const errorMessage = `查詢動詞變化失敗：${e.message}`;
+        setError(errorMessage);
+        setModalMessage(errorMessage);
+        setShowModal(true);
+        setVerbConjugationData({ error: errorMessage, verb_infinitive_src_lang: verbToLookup, language_name_for_display_zh_TW: getLanguageName(featureLanguage) });
+    } finally {
+        setIsVerbConjLoading(false);
+    }
+};
 
-        async function askGeminiGeneralQuestion() {
-            const question = userQuestionInput.value.trim();
-            if (!question) {
-                openModal("請教 Gemini", "請先輸入您的問題。");
-                return;
-            }
-            const bookCoreGoalText = getTextFromElement('core-goal-card-content');
-            const bookFinalPhilosophyText = getTextFromElement('final-philosophy-card-content');
-            
-            let bookContext = '';
-            if (bookCoreGoalText) {
-                bookContext += `書本的核心目標：\n${bookCoreGoalText}\n\n`;
-            }
-            if (bookFinalPhilosophyText) {
-                bookContext += `書本的總結性領導哲學：\n${bookFinalPhilosophyText}\n\n`;
-            }
+const toggleVerbDetailOpenState = (key) => {
+    setVerbDetailsOpenState(prev => ({ ...prev, [key]: !prev[key] }));
+};
 
-            const prompt = `這是一份關於《上位思維：從當上主管到成為領導人》的重點整理。${bookContext ? '以下是書本的一些核心概念：\n' + bookContext : ''}針對以下關於領導力或本書內容的問題，請提供一個清晰且具洞察力的回答。請用臺灣繁體中文回答。\n\n使用者問題：\n${question}`;
-            await executeGeminiCall(prompt, `關於「${question.substring(0,20)}...」的回答`);
-            userQuestionInput.value = '';
+const setAllVerbDetailsOpenState = (isOpen) => {
+    if (!verbConjugationData || !verbConjugationData.conjugations) return; 
+    const newState = {};
+    verbConjugationData.conjugations.forEach((mood, moodIndex) => {
+        const moodKey = `mood-${moodIndex}`;
+        newState[moodKey] = isOpen;
+        mood.tenses_or_voices.forEach((tense, tenseIndex) => {
+            const tenseKey = `${moodKey}-tense-${tenseIndex}`;
+            newState[tenseKey] = isOpen;
+        });
+    });
+    setVerbDetailsOpenState(newState);
+};
+
+
+const handleTranslateSelectedText = async () => {
+    if (!selectedText) {
+        setModalMessage("請先在文章中選取一些文字。"); setShowModal(true); return;
+    }
+    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
+        setModalMessage(`無法確定有效來源語言 ("${featureLanguageName}")，無法進行翻譯。`);
+        setShowModal(true);
+        return;
+    }
+    setIsTranslating(true); setError(''); setTranslationResult(null);
+    try {
+        const sourceLangName = getLanguageName(featureLanguage);
+        const prompt = `Please translate the following text from ${sourceLangName} (language code: ${featureLanguage}) to Traditional Chinese (target language code: zh-TW).
+Original Text: "${selectedText}"
+Respond ONLY with a JSON object adhering to this schema: ${JSON.stringify(translationSchema)}.
+If translation is not possible or an error occurs, include an "error" field in your JSON.`;
+
+        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+        const payload = {
+            contents: chatHistory,
+            generationConfig: { responseMimeType: "application/json", responseSchema: translationSchema }
+        };
+        const apiKey = ""; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: "無法解析翻譯錯誤回應" }));
+            console.error("Gemini API error for translation:", errorData);
+            throw new Error(`AI 翻譯失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
         }
-
-        function askChapterQuestion(contentElementId, chapterName) {
-            const tempInputId = 'tempChapterQuestionInput';
-            const existingTempInput = document.getElementById(tempInputId);
-            if (existingTempInput && existingTempInput.parentElement) {
-                 existingTempInput.parentElement.remove();
+        const result = await response.json();
+        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+            const translationData = JSON.parse(result.candidates[0].content.parts[0].text);
+            if (translationData.error) {
+                throw new Error(`AI 翻譯時發生錯誤：${translationData.error}`);
             }
+            setTranslationResult(translationData);
+            setShowTranslationModal(true); 
+        } else {
+            console.error("Unexpected Gemini API response structure for translation:", result);
+            throw new Error("AI 翻譯回應格式不符預期。");
+        }
+    } catch (e) {
+        console.error("Error translating text:", e);
+        const errorMessage = `翻譯失敗：${e.message}`;
+        setError(errorMessage); 
+        setModalMessage(errorMessage); 
+        setShowModal(true);
+    } finally {
+        setIsTranslating(false);
+    }
+};
 
-            const inputContainer = document.createElement('div');
-            inputContainer.className = 'mt-4 mb-3';
-            const tempInput = document.createElement('input');
-            tempInput.type = 'text';
-            tempInput.id = tempInputId;
-            tempInput.placeholder = `針對${chapterName}的內容提問...`;
-            tempInput.className = 'w-full p-2 border border-gray-300 rounded-md text-slate-700';
+  const filteredBookmarks = manualSelectedLanguage 
+    ? bookmarks.filter(b => b.language === manualSelectedLanguage) 
+    : bookmarks; 
+  const filteredVocabulary = manualSelectedLanguage 
+    ? vocabulary.filter(v => v.language === manualSelectedLanguage) 
+    : vocabulary; 
 
-            const submitButton = document.createElement('button');
-            submitButton.textContent = '送出問題';
-            submitButton.className = 'gemini-button bg-green-500 hover:bg-green-600 mt-2';
-            submitButton.onclick = async () => {
-                const chapterQuestion = tempInput.value.trim();
-                if (!chapterQuestion) {
-                    // Update modal body directly if input is empty, instead of alert
-                    const currentModalBody = document.getElementById('modalBody');
-                    if(currentModalBody) currentModalBody.innerHTML = "請輸入您針對本章節的問題。";
-                    return;
+  // Helper function to escape CSV data
+  const escapeCsvCell = (cellData) => {
+    if (cellData === null || typeof cellData === 'undefined') return '';
+    let cellString = String(cellData);
+    if (cellString.includes(',') || cellString.includes('"') || cellString.includes('\n')) {
+      cellString = cellString.replace(/"/g, '""');
+      return `"${cellString}"`;
+    }
+    return cellString;
+  };
+
+  const exportVocabularyToCSV = () => {
+    if (filteredVocabulary.length === 0) {
+      setModalMessage("生字簿是空的，沒有內容可以匯出。");
+      setShowModal(true);
+      return;
+    }
+
+    const headers = ["詞條", "語言", "定義/意思 (原文)", "翻譯 (繁中)", "例句 (原文)", "文章來源URL"]; 
+    const csvRows = [headers.join(',')]; 
+
+    filteredVocabulary.forEach(v => {
+      const definitions = Array.isArray(v.definitions) ? v.definitions.join('; ') : (v.definitions || '');
+      const row = [
+        escapeCsvCell(v.word), 
+        escapeCsvCell(getLanguageName(v.language)),
+        escapeCsvCell(definitions), 
+        escapeCsvCell(v.translation_zh_TW),
+        escapeCsvCell(v.example_sentence),
+        escapeCsvCell(v.articleUrl)
+      ];
+      csvRows.push(row.join(','));
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' }); 
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `我的生字簿_${featureLanguageName || '所有語言'}_${new Date().toISOString().slice(0,10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setModalMessage("生字簿已成功匯出為 CSV 檔案！");
+    setShowModal(true);
+  };
+
+  const exportVerbConjugationToCSV = () => {
+    if (!verbConjugationData || verbConjugationData.error || !verbConjugationData.conjugations) {
+      setModalMessage("沒有動詞變化資料可供匯出，或資料有誤。");
+      setShowModal(true);
+      return;
+    }
+
+    const headers = ["語氣 (原文)", "語氣 (繁中)", "時態/語態 (原文)", "時態/語態 (繁中)", "人稱/編號 (原文)", "變化形 (原文)", "例句 (原文)", "例句翻譯 (繁中)"];
+    const csvRows = [headers.join(',')];
+
+    verbConjugationData.conjugations.forEach(mood => {
+      mood.tenses_or_voices.forEach(tense => {
+        tense.forms.forEach(form => {
+          const row = [
+            escapeCsvCell(mood.group_name_src_lang),
+            escapeCsvCell(mood.group_name_zh_TW),
+            escapeCsvCell(tense.sub_group_name_src_lang),
+            escapeCsvCell(tense.sub_group_name_zh_TW),
+            escapeCsvCell(form.person_descriptor_src_lang),
+            escapeCsvCell(form.conjugated_form_src_lang),
+            escapeCsvCell(tense.example_sentence_src_lang),
+            escapeCsvCell(tense.example_sentence_translation_zh_TW)
+          ];
+          csvRows.push(row.join(','));
+        });
+        if (tense.forms.length === 0 && tense.example_sentence_src_lang) {
+            const row = [
+                escapeCsvCell(mood.group_name_src_lang),
+                escapeCsvCell(mood.group_name_zh_TW),
+                escapeCsvCell(tense.sub_group_name_src_lang),
+                escapeCsvCell(tense.sub_group_name_zh_TW),
+                '', 
+                '', 
+                escapeCsvCell(tense.example_sentence_src_lang),
+                escapeCsvCell(tense.example_sentence_translation_zh_TW)
+            ];
+            csvRows.push(row.join(','));
+        }
+      });
+    });
+
+    const csvString = csvRows.join('\n');
+    const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    const verbName = verbConjugationData?.verb_infinitive_src_lang || '動詞變化'; 
+    const langName = verbConjugationData?.language_name_for_display_zh_TW || featureLanguageName; 
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${verbName}_${langName}_變化表_${new Date().toISOString().slice(0,10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setModalMessage(`動詞「${verbName}」(${langName}) 的變化表已成功匯出為 CSV 檔案！`);
+    setShowModal(true);
+  };
+
+
+  if (!isAuthReady) {
+    return <div className="flex justify-center items-center h-screen text-2xl font-bold font-gaegu" style={{ color: '#58452D' }}>正在初始化應用程式...</div>;
+  }
+
+  const anyLoading = isLoading || isVocabLoading || isInsightLoading || isVerbConjLoading || isTranslating;
+  const numSelectedInsightItems = Object.values(selectedInsightItems).filter(Boolean).length; 
+
+  return (
+    <div className="min-h-screen p-4 md:p-8" style={{ backgroundColor: '#FDF6E3' }}>
+      <header className="mb-10 p-7 hand-drawn-border bg-orange-100"> 
+        <h1 className="text-4xl md:text-5xl font-bold text-center font-gaegu mb-2" style={{ color: '#8C6D46' }}>語言學習小幫手</h1> 
+        {userId && <p className="text-sm text-center mt-2" style={{color: '#A98C6A'}}>使用者 ID: {userId}</p>}
+      </header>
+
+      <section className="mb-8 p-7 hand-drawn-border bg-lime-50"> 
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-center"> {/* Increased gap to gap-6 */}
+          <input
+            ref={urlInputRef} 
+            type="url"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="貼上文章網址開始學習..."
+            className="sm:col-span-6 p-4 hand-drawn-border bg-white text-lg focus:ring-2 focus:ring-orange-300 outline-none" 
+            disabled={anyLoading}
+          />
+          <select
+            value={manualSelectedLanguage}
+            onChange={(e) => {
+                setManualSelectedLanguage(e.target.value);
+                if (e.target.value && detectedLanguage && e.target.value !== detectedLanguage) {
+                    setModalMessage(`功能語言已手動設定為 ${getLanguageName(e.target.value)}。文章偵測語言為 ${getLanguageName(detectedLanguage)}。`);
+                    setShowModal(true);
+                } else if (!e.target.value && detectedLanguage) { 
+                     setModalMessage(`功能語言已切換回自動偵測 (${getLanguageName(detectedLanguage) || '未偵測到'})。`);
+                     setShowModal(true);
                 }
-                const chapterText = getTextFromElement(contentElementId);
-                const prompt = `關於《上位思維》${chapterName}的內容 (如下方文本所示)，請回答以下問題。請用臺灣繁體中文回答。\n\n相關章節內容：\n${chapterText}\n\n使用者問題：\n${chapterQuestion}`;
-                const answerDisplayTitle = `關於 ${chapterName} - 「${chapterQuestion.substring(0,20)}...」`;
-                
-                // Clear the input container before showing the result
-                if(inputContainer.parentNode) { // Check if still part of DOM
-                    inputContainer.innerHTML = ''; // Clear the input and button
-                }
-                await executeGeminiCall(prompt, answerDisplayTitle);
-            };
+            }}
+            className="sm:col-span-3 p-4 hand-drawn-border bg-white text-lg focus:ring-2 focus:ring-orange-300 outline-none" 
+            disabled={anyLoading}
+          >
+            <option value="">自動偵測語言</option>
+            {Object.entries(languageCodeToName).map(([code, name]) => (
+              <option key={code} value={code}>{name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleFetchArticle}
+            disabled={anyLoading}
+            className="sm:col-span-2 px-7 py-4 hand-drawn-button bg-sky-200 hover:bg-sky-300 text-sky-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap" 
+          >
+            {isLoading ? '讀取中...' : '讀取文章'}
+          </button>
+          <button
+            onClick={handleChangeSource}
+            disabled={anyLoading}
+            className="sm:col-span-1 px-7 py-4 hand-drawn-button bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold text-lg whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed" 
+          >
+            換一篇
+          </button>
+        </div>
+      </section>
 
-            inputContainer.appendChild(tempInput);
-            inputContainer.appendChild(submitButton);
-            
-            modalTitle.textContent = `針對 ${chapterName} 提問`;
-            modalBody.innerHTML = '';
-            modalBody.appendChild(inputContainer);
-            loadingIndicatorModal.style.display = 'none';
-            modal.style.display = 'block';
-            tempInput.focus();
-        }
+      <div className="flex flex-col lg:flex-row gap-10"> 
+        <main className="lg:w-2/3 p-7 hand-drawn-border bg-white flex flex-col"> 
+          <h2 className="text-3xl font-bold mb-5 pb-4 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>文章內容</h2>  {/* Adjusted mb */}
+          
+          <div className="text-sm text-center my-5 space-y-1.5" style={{color: '#A98C6A'}}> {/* Adjusted my */}
+            {currentArticleUrl && detectedLanguage && (
+                <p>偵測到的文章語言：<span className="font-semibold">{getLanguageName(detectedLanguage) || '未知'}</span>
+                { (detectedLanguage === 'unknown' || !languageCodeToName[detectedLanguage]) && " (部分 AI 功能可能受限)"}
+                </p>
+            )}
+            {manualSelectedLanguage && (
+                <p>手動篩選/功能語言：<span className="font-semibold">{getLanguageName(manualSelectedLanguage)}</span></p>
+            )}
+          </div>
 
-    </script>
-</body>
-</html>
+          {isLoading && currentArticleUrl && <p className="p-4 text-orange-600">正在載入文章「{currentArticleUrl}」...</p>}
+          <div
+            ref={articleDisplayRef}
+            onMouseUp={handleTextSelection} 
+            onTouchEnd={handleTextSelection} 
+            className="prose-custom max-w-none h-96 overflow-y-auto p-5 border border-dashed border-stone-300 rounded-md bg-orange-50/50" 
+            style={{ userSelect: 'text', fontSize: '1.1rem' }} 
+          >
+            {getRenderedArticleText()}
+          </div>
+
+          {currentArticleUrl && !articleInsights && !isInsightLoading && articleText && featureLanguage && languageCodeToName[featureLanguage] && (
+            <button
+              onClick={handleFetchArticleInsights}
+              disabled={anyLoading}
+              className="mt-8 px-7 py-3.5 hand-drawn-button bg-teal-200 hover:bg-teal-300 text-teal-800 font-semibold text-lg self-center inline-flex items-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed" 
+            >
+              <SparklesIcon className="w-5 h-5" />
+              深度學習分析 ({featureLanguageName})
+            </button>
+          )}
+          {isInsightLoading && ( 
+            <div className="mt-8 p-5 text-center text-teal-700"> 
+              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-teal-500 mx-auto mb-3"></div> 
+              AI 努力分析中 ({featureLanguageName})，請稍候...
+            </div>
+          )}
+          {articleInsights && (
+            <div className="mt-10 pt-8 border-t-2 border-dashed border-stone-300"> 
+              <div className="flex justify-between items-center mb-8"> 
+                <h3 className="text-2xl font-bold section-title-gaegu" style={{ color: '#8C6D46' }}>AI 學習洞察 ({featureLanguageName})</h3>
+                {(articleInsights.key_vocabulary?.length > 0 || articleInsights.useful_phrases?.length > 0) && (
+                    <button
+                        onClick={handleBulkAddSelectedInsightItems}
+                        disabled={anyLoading || numSelectedInsightItems === 0}
+                        className="hand-drawn-button bg-green-200 hover:bg-green-300 text-green-800 text-sm px-4 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
+                        title="批次加入已勾選的單字與片語"
+                    >
+                        <CheckCircleIcon className="w-4 h-4" /> 批次加入 ({numSelectedInsightItems})
+                    </button>
+                )}
+              </div>
+              
+              <div className="mb-10">  
+                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>重點單字</h4> 
+                {articleInsights.key_vocabulary && articleInsights.key_vocabulary.length > 0 ? (
+                  <ul className="space-y-6"> 
+                    {articleInsights.key_vocabulary.map((item, index) => (
+                      <li key={`vocab-${item.word}-${index}`} className="p-5 hand-drawn-border bg-amber-50/70 text-sm">  
+                        <div className="flex justify-between items-start mb-1.5"> {/* Adjusted mb */}
+                            <div className="flex items-center">
+                                <input 
+                                    type="checkbox"
+                                    id={`insight-vocab-${index}`}
+                                    checked={!!selectedInsightItems[item.word]} 
+                                    onChange={() => handleToggleInsightItemSelection(item.word)} 
+                                    className="mr-3.5 h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer" 
+                                    disabled={anyLoading}
+                                />
+                                <label htmlFor={`insight-vocab-${index}`} className="cursor-pointer">
+                                    <strong className="text-lg text-amber-700 block mb-2">{item.word}</strong>  
+                                </label>
+                            </div>
+                          <button 
+                            onClick={() => addVocabEntry(item.word, item.definition_en, item.translation_zh_TW, item.example_sentence_from_article)}
+                            disabled={anyLoading || !featureLanguage || !languageCodeToName[featureLanguage]}
+                            className="hand-drawn-button bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-2 inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed" 
+                            title="單獨加入此單字"
+                          >
+                            <PlusCircleIcon className="w-4 h-4"/> 加入
+                          </button>
+                        </div>
+                        <p className="mt-2 mb-2"><span className="font-semibold text-stone-500">定義 ({featureLanguageName || '原文'}):</span> {item.definition_en}</p> {/* Adjusted mt, mb */}
+                        <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {item.translation_zh_TW}</p> {/* Adjusted mb */}
+                        <p className="mt-2.5 italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p>  
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-stone-500 pt-3">AI 未找到特別的重點單字。</p>} 
+              </div>
+
+              <div className="mb-10"> 
+                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>實用片語</h4> 
+                {articleInsights.useful_phrases && articleInsights.useful_phrases.length > 0 ? (
+                  <ul className="space-y-6"> 
+                    {articleInsights.useful_phrases.map((item, index) => (
+                      <li key={`phrase-${item.phrase}-${index}`} className="p-5 hand-drawn-border bg-sky-50/70 text-sm"> 
+                         <div className="flex justify-between items-start mb-1.5"> {/* Adjusted mb */}
+                            <div className="flex items-center">
+                                <input 
+                                    type="checkbox"
+                                    id={`insight-phrase-${index}`}
+                                    checked={!!selectedInsightItems[item.phrase]} 
+                                    onChange={() => handleToggleInsightItemSelection(item.phrase)} 
+                                    className="mr-3.5 h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer" 
+                                    disabled={anyLoading}
+                                />
+                                <label htmlFor={`insight-phrase-${index}`} className="cursor-pointer">
+                                    <strong className="text-lg text-sky-700 block mb-2">{item.phrase}</strong> 
+                                </label>
+                            </div>
+                          <button 
+                            onClick={() => addVocabEntry(item.phrase, item.meaning_en, item.translation_zh_TW, item.example_sentence_from_article)}
+                            disabled={anyLoading || !featureLanguage || !languageCodeToName[featureLanguage]}
+                            className="hand-drawn-button bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-2 inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed" 
+                            title="單獨加入此片語"
+                          >
+                            <PlusCircleIcon className="w-4 h-4"/> 加入
+                          </button>
+                        </div>
+                        <p className="mb-2"><span className="font-semibold text-stone-500">意思 ({featureLanguageName || '原文'}):</span> {item.meaning_en}</p> {/* Adjusted mb */}
+                        <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {item.translation_zh_TW}</p> {/* Adjusted mb */}
+                        <p className="mt-2.5 italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p> 
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-stone-500 pt-3">AI 未找到特別的實用片語。</p>} 
+              </div>
+
+              <div>
+                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>文法結構亮點</h4> 
+                {articleInsights.grammar_highlights && articleInsights.grammar_highlights.length > 0 ? (
+                  <ul className="space-y-6"> 
+                    {articleInsights.grammar_highlights.map((item, index) => (
+                      <li key={`grammar-${item.grammar_point_name_zh_TW.replace(/\s/g, '_')}-${index}`} className="p-5 hand-drawn-border bg-purple-50/70 text-sm"> 
+                        <strong className="text-lg text-purple-700 block mb-2">{item.grammar_point_name_zh_TW}</strong> 
+                        <p className="mb-2"><span className="font-semibold text-stone-500">解釋 (繁中):</span> {item.explanation_zh_TW}</p> 
+                        <p className="italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-stone-500 pt-3">AI 未找到特別的文法亮點。</p>} 
+              </div>
+            </div>
+          )}
+        </main>
+
+        <aside className="lg:w-1/3 flex flex-col gap-10"> 
+          <section className="p-7 hand-drawn-border bg-amber-50"> 
+            <h3 className="text-2xl font-bold mb-6 pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>學習工具</h3> 
+            {currentArticleUrl && articleText && (
+              <button
+                onClick={addBookmark}
+                disabled={anyLoading || !currentArticleUrl}
+                className="w-full mb-5 px-5 py-3.5 hand-drawn-button bg-green-200 hover:bg-green-300 text-green-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed" 
+              >
+                收藏這篇文章
+              </button>
+            )}
+            {selectedText && articleText && featureLanguage && languageCodeToName[featureLanguage] && (
+              <>
+                <button
+                  onClick={() => addVocabEntry(selectedText)} 
+                  disabled={anyLoading || !selectedText}
+                  className="w-full mb-5 px-5 py-3.5 hand-drawn-button bg-purple-200 hover:bg-purple-300 text-purple-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed" 
+                >
+                  {isVocabLoading && selectedText === (document.activeElement?.dataset?.word || '') ? '查詢中...' : `加入生字簿 (${featureLanguageName}): "${selectedText.substring(0,10)}..."`}
+                </button>
+                <button
+                  onClick={handleTranslateSelectedText}
+                  disabled={anyLoading || !selectedText}
+                  className="w-full px-5 py-3.5 hand-drawn-button bg-blue-200 hover:bg-blue-300 text-blue-800 font-semibold text-lg inline-flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed" 
+                >
+                  <GlobeAltIcon className="w-5 h-5" />
+                  {isTranslating ? '翻譯中...' : `翻譯選取文字 (至繁中)`}
+                </button>
+              </>
+            )}
+            {!selectedText && articleText && (
+              <p className="text-sm text-stone-500 mt-4">在文章中選取或點擊文字以加入生字簿或翻譯。</p> 
+            )}
+             {articleText && (!featureLanguage || !languageCodeToName[featureLanguage]) && (
+               <p className="text-sm text-orange-600 mt-4">請確認已偵測到或手動選擇有效語言以使用工具。</p> 
+            )}
+            {!articleText && (
+              <p className="text-sm text-stone-500 mt-4">請先讀取一篇文章以使用工具。</p> 
+            )}
+          </section>
+          
+          <section className="p-7 hand-drawn-border bg-indigo-50"> 
+            <div className="flex justify-between items-center mb-6"> 
+                <h3 className="text-2xl font-bold pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>動詞變化查詢 ({featureLanguageName || '請選語言'})</h3> 
+                {verbConjugationData && !verbConjugationData.error && verbConjugationData.conjugations && (
+                    <button
+                        onClick={exportVerbConjugationToCSV}
+                        disabled={anyLoading}
+                        className="hand-drawn-button bg-indigo-200 hover:bg-indigo-300 text-indigo-800 text-sm px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
+                        title="匯出動詞變化表 (CSV)"
+                    >
+                        <ArrowDownTrayIcon className="w-4 h-4" /> 匯出
+                    </button>
+                )}
+            </div>
+            {(!featureLanguage || !languageCodeToName[featureLanguage]) && ( 
+                 <p className="text-sm text-stone-500 mb-4">請先成功載入文章並偵測語言，或手動選擇一個支援的語言。</p> 
+            )}
+            {featureLanguage && languageCodeToName[featureLanguage] && ( 
+                <>
+                    <div className="flex flex-col sm:flex-row gap-3 mb-5">  
+                        <input
+                            type="text"
+                            value={verbToLookup}
+                            onChange={(e) => setVerbToLookup(e.target.value)}
+                            placeholder={`輸入${featureLanguageName}動詞`}
+                            className="flex-grow p-3 hand-drawn-border bg-white text-base focus:ring-1 focus:ring-indigo-300 outline-none" 
+                            disabled={anyLoading}
+                        />
+                        <button
+                            onClick={handleFetchVerbConjugation}
+                            disabled={anyLoading || !verbToLookup.trim()}
+                            className="p-3 hand-drawn-button bg-indigo-200 hover:bg-indigo-300 text-indigo-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center aspect-square" 
+                            title="查詢動詞變化"
+                        >
+                            {isVerbConjLoading 
+                                ? <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-indigo-700"></div>
+                                : <MagnifyingGlassIcon className="w-5 h-5"/>
+                            }
+                        </button>
+                    </div>
+                    {isVerbConjLoading && <p className="text-sm text-indigo-600">正在查詢動詞「{verbToLookup}」的變化...</p>}
+                    {verbConjugationData && (
+                        <div className="mt-5 max-h-96 overflow-y-auto prose-custom text-sm p-5 bg-white border border-dashed border-indigo-200 rounded-md">  
+                            {verbConjugationData.error ? ( 
+                                <p className="text-red-600">查詢「{verbConjugationData.verb_infinitive_src_lang || verbToLookup}」({verbConjugationData.language_name_for_display_zh_TW})時發生錯誤：{verbConjugationData.error}</p>
+                            ) : ( 
+                                <>
+                                    <div className="flex justify-between items-center mb-4"> 
+                                        <h4 className="text-lg font-semibold" style={{color: '#4A55A2'}}>
+                                            {verbConjugationData.verb_infinitive_src_lang}
+                                            <span className="text-sm font-normal"> ({verbConjugationData.language_name_for_display_zh_TW})</span>
+                                        </h4>
+                                        <div className="space-x-2.5"> 
+                                            <button onClick={() => setAllVerbDetailsOpenState(true)} className="text-xs hand-drawn-button px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700">全部展開</button> 
+                                            <button onClick={() => setAllVerbDetailsOpenState(false)} className="text-xs hand-drawn-button px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700">全部收合</button> 
+                                        </div>
+                                    </div>
+                                    <p className="mb-1"><strong>規則性：</strong>{verbConjugationData.regularity_zh_TW}</p> 
+                                    {verbConjugationData.verb_type_zh_TW && <p className="mt-0.5 mb-2"><strong>類型：</strong>{verbConjugationData.verb_type_zh_TW}</p>} 
+
+                                    {verbConjugationData.conjugations?.map((mood, moodIndex) => (
+                                        <details 
+                                            key={`mood-${moodIndex}`} 
+                                            className="mb-4" 
+                                            open={verbDetailsOpenState[`mood-${moodIndex}`]} 
+                                        >
+                                            <summary 
+                                                className={`text-md font-semibold verb-mood-summary`}
+                                                onClick={(e) => { 
+                                                    e.preventDefault(); 
+                                                    toggleVerbDetailOpenState(`mood-${moodIndex}`); 
+                                                }}
+                                            > 
+                                                <span>
+                                                    {mood.group_name_zh_TW}
+                                                    {mood.group_name_src_lang && ` (${mood.group_name_src_lang})`}
+                                                </span>
+                                                {verbDetailsOpenState[`mood-${moodIndex}`] 
+                                                    ? <ChevronDownIcon className="w-4 h-4 inline-block ml-1 transform rotate-0" /> 
+                                                    : <ChevronRightIcon className="w-4 h-4 inline-block ml-1 transform" />
+                                                }
+                                            </summary>
+                                            <div className="pl-2.5 pt-1.5 pb-1.5"> 
+                                                {mood.tenses_or_voices?.map((tense, tenseIndex) => (
+                                                    <details 
+                                                        key={`mood-${moodIndex}-tense-${tenseIndex}`} 
+                                                        className="mt-2 mb-2.5"  
+                                                        open={verbDetailsOpenState[`mood-${moodIndex}-tense-${tenseIndex}`]} 
+                                                    >
+                                                        <summary 
+                                                            className={`text-base font-medium verb-tense-summary`}
+                                                            onClick={(e) => { 
+                                                                e.preventDefault(); 
+                                                                toggleVerbDetailOpenState(`mood-${moodIndex}-tense-${tenseIndex}`); 
+                                                            }}
+                                                        > 
+                                                            <span>
+                                                                {tense.sub_group_name_zh_TW}
+                                                                {tense.sub_group_name_src_lang && ` (${tense.sub_group_name_src_lang})`}
+                                                            </span>
+                                                            {verbDetailsOpenState[`mood-${moodIndex}-tense-${tenseIndex}`] 
+                                                                ? <ChevronDownIcon /> 
+                                                                : <ChevronRightIcon />
+                                                            }
+                                                        </summary>
+                                                        <div className="pl-3.5 pt-2.5 pb-1.5"> 
+                                                            <ul className="list-none space-y-2.5 text-xs verb-forms-list"> 
+                                                                {tense.forms?.map((form, formIndex) => (
+                                                                    <li key={formIndex} className="flex"> 
+                                                                        <span className="font-semibold w-2/5 pr-2.5 text-right text-indigo-700">{form.person_descriptor_src_lang}:</span> 
+                                                                        <span className="w-3/5 text-left">{form.conjugated_form_src_lang}</span> 
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                            {tense.example_sentence_src_lang && (
+                                                                <div className="verb-example-sentence"> 
+                                                                    <p><strong>例句 ({verbConjugationData.language_name_for_display_zh_TW}):</strong> {tense.example_sentence_src_lang}</p>
+                                                                    {tense.example_sentence_translation_zh_TW && <p className="mt-1.5"><strong>翻譯 (繁中):</strong> {tense.example_sentence_translation_zh_TW}</p>} 
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </details>
+                                                ))}
+                                            </div>
+                                        </details>
+                                    ))}
+                                    {verbConjugationData.notes_zh_TW && (
+                                        <div className="mt-4 pt-4 border-t border-dashed border-indigo-200"> 
+                                            <p className="text-sm font-semibold" style={{color: '#4A55A2'}}>備註：</p>
+                                            <p className="text-xs mt-1.5">{verbConjugationData.notes_zh_TW}</p> 
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+                </>
+            )}
+          </section>
+
+
+          <section className="p-7 hand-drawn-border bg-sky-50"> 
+            <h3 className="text-2xl font-bold mb-6 pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>我的收藏 {manualSelectedLanguage ? `(${getLanguageName(manualSelectedLanguage)})` : '(所有語言)'}</h3> 
+            <div className="space-y-6 max-h-60 overflow-y-auto pr-2.5"> 
+              {filteredBookmarks.length > 0 ? (
+                filteredBookmarks.map((b) => (
+                  <div key={b.id} className="p-5 hand-drawn-border bg-white group relative"> 
+                    <button 
+                        onClick={() => loadBookmarkedArticle(b.url, b.language)} 
+                        className="text-left w-full"
+                        title={`載入: ${b.title || b.url}`}
+                    >
+                        <strong className="block text-xl text-sky-700 truncate mb-2">{b.title || '未命名收藏'}</strong> 
+                        <span className="text-xs text-stone-500 block truncate">{b.url}</span>
+                        <span className="text-xs text-sky-600 block mt-1">({getLanguageName(b.language || b.detectedLanguage)})</span> 
+                    </button>
+                    <button 
+                        onClick={() => removeBookmark(b.id)}
+                        disabled={anyLoading}
+                        className="absolute top-2.5 right-2.5 text-red-500 hover:text-red-700 opacity-50 group-hover:opacity-100 transition-opacity p-1.5 hand-drawn-button bg-red-100 hover:bg-red-200 border-red-300 disabled:opacity-50 disabled:cursor-not-allowed" 
+                        aria-label="移除收藏"
+                    >
+                        <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              ) : ( 
+                <p className="text-stone-500 pt-3">{manualSelectedLanguage ? `沒有 ${getLanguageName(manualSelectedLanguage)} 的收藏。` : '還沒有收藏的文章喔。'}</p> 
+              )}
+            </div>
+          </section>
+
+          <section className="p-7 hand-drawn-border bg-purple-50"> 
+            <div className="flex justify-between items-center mb-6"> 
+                <h3 className="text-2xl font-bold pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>我的生字簿 {manualSelectedLanguage ? `(${getLanguageName(manualSelectedLanguage)})` : '(所有語言)'}</h3> 
+                {filteredVocabulary.length > 0 && (
+                    <button
+                        onClick={exportVocabularyToCSV}
+                        disabled={anyLoading}
+                        className="hand-drawn-button bg-purple-200 hover:bg-purple-300 text-purple-800 text-sm px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
+                        title="匯出單字本 (CSV)"
+                    >
+                        <ArrowDownTrayIcon className="w-4 h-4" /> 匯出
+                    </button>
+                )}
+            </div>
+            {isVocabLoading && selectedText && <p className="text-sm text-purple-600">正在為「{selectedText}」查詢生字資訊...</p>}
+            <div className="space-y-6 max-h-80 overflow-y-auto pr-2.5"> 
+            {filteredVocabulary.length > 0 ? (
+              filteredVocabulary.map((v) => (
+                <div key={v.id} className="p-5 hand-drawn-border bg-white group relative text-stone-700"> 
+                  <div className="flex justify-between items-start mb-3"> 
+                    <strong className="text-2xl text-purple-700 break-all">{v.word} <span className="text-base text-purple-500">({getLanguageName(v.language)})</span></strong>
+                    <button 
+                      onClick={() => removeVocabEntry(v.id)}
+                      disabled={anyLoading}
+                      className="text-red-500 hover:text-red-700 opacity-50 group-hover:opacity-100 transition-opacity p-1.5 hand-drawn-button bg-red-100 hover:bg-red-200 border-red-300 disabled:opacity-50 disabled:cursor-not-allowed" 
+                      aria-label="移除生字"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {v.translation_zh_TW && <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {v.translation_zh_TW}</p>} 
+                  {v.definitions && Array.isArray(v.definitions) && v.definitions.length > 0 && (
+                    <div className="mb-2"> 
+                      <p className="font-semibold text-stone-500 mb-1.5">定義/意思 ({getLanguageName(v.language)}):</p> {/* Adjusted mb */}
+                      <ul className="list-disc list-inside pl-3.5 text-sm space-y-1.5"> 
+                        {v.definitions.map((def, i) => <li key={`${v.id}-def-${i}`}>{def}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {v.example_sentence && <p className="text-sm mb-1.5"><span className="font-semibold text-stone-500">例句 ({getLanguageName(v.language)}):</span> <em className="italic">"{v.example_sentence}"</em></p>} 
+                  {v.articleUrl && v.articleUrl !== 'general' && <p className="text-xs text-stone-400 mt-3 truncate" title={`來源文章: ${v.articleUrl}`}>來源: {v.articleUrl.length > 30 ? v.articleUrl.substring(0,27) + '...' : v.articleUrl}</p>} 
+                </div>
+              ))
+            ) : ( 
+              <p className="text-stone-500 pt-3">{manualSelectedLanguage ? `沒有 ${getLanguageName(manualSelectedLanguage)} 的生字。` : '生字簿是空的，快去選字加入吧！'}</p> 
+            )}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      {anyLoading && (
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 backdrop-blur-sm">
+          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-orange-400"></div>
+        </div>
+      )}
+      
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+          <div className="p-8 hand-drawn-border bg-amber-100 max-w-md w-full">
+            <h4 className="text-2xl font-bold mb-6 font-gaegu" style={{color: '#8C6D46'}}>通知</h4> 
+            <p className="text-lg text-stone-700 mb-8 whitespace-pre-wrap">{modalMessage}</p> 
+            <button
+              onClick={() => {setShowModal(false); setModalMessage(''); if(error && modalMessage.toLowerCase().includes("失敗")) setError('');}} 
+              className="w-full px-5 py-4 hand-drawn-button bg-orange-300 hover:bg-orange-400 text-orange-800 font-semibold text-lg" 
+            >
+              我知道了
+            </button>
+          </div>
+        </div>
+      )}
+      {showTranslationModal && translationResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+          <div className="p-8 hand-drawn-border bg-blue-100 max-w-lg w-full prose-custom">
+            <h4 className="text-2xl font-bold mb-6 font-gaegu" style={{color: '#3B82F6'}}>翻譯結果</h4> 
+            <div className="mb-6"> 
+                <p className="font-semibold text-stone-600">原文 ({getLanguageName(translationResult.source_language_code_detected || featureLanguage)}):</p>
+                <p className="p-3.5 bg-white border border-dashed border-blue-300 rounded-md text-stone-700 max-h-32 overflow-y-auto mt-2">{translationResult.original_text}</p> 
+            </div>
+            <div className="mb-8"> 
+                <p className="font-semibold text-stone-600">翻譯 (繁體中文):</p>
+                <p className="p-3.5 bg-white border border-dashed border-blue-300 rounded-md text-blue-700 font-medium max-h-32 overflow-y-auto mt-2">{translationResult.translated_text_zh_TW}</p> 
+            </div>
+            <button
+              onClick={() => {setShowTranslationModal(false); setTranslationResult(null);}} 
+              className="w-full px-5 py-4 hand-drawn-button bg-blue-300 hover:bg-blue-400 text-blue-800 font-semibold text-lg" 
+            >
+              關閉
+            </button>
+          </div>
+        </div>
+      )}
+      {error && !showModal && !showTranslationModal && ( 
+         <div className="fixed bottom-5 right-5 p-5 hand-drawn-border bg-red-200 text-red-800 max-w-md z-40"> 
+           <p className="font-bold text-lg font-gaegu mb-1">哎呀，出錯了：</p> 
+           <p className="text-md whitespace-pre-wrap mt-1.5">{error}</p> 
+           <button onClick={() => setError('')} className="mt-3 text-sm underline text-red-700">關閉</button> 
+       </div>
+      )}
+      <footer className="mt-20 text-center text-sm text-stone-500"> 
+        <p className="font-gaegu mb-1">語言學習小幫手 &copy; 2024-2025</p> 
+        <p className="mt-2">網頁內容提取與 AI 功能依賴外部服務，可能並非所有情況都能成功處理喔！</p> 
+      </footer>
+    </div>
+  );
+}
+
+export default App;

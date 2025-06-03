@@ -1,1771 +1,1584 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, addDoc, query, where, getDocs, onSnapshot, doc, deleteDoc, setDoc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { setLogLevel } from "firebase/app";
-
-// Firebase 設定 - 增強 robustness
-let parsedFirebaseConfig;
-const defaultFirebaseConfig = {
-    apiKey: "YOUR_API_KEY", // 請替換成您的 Firebase API Key
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID",
-    storageBucket: "YOUR_STORAGE_BUCKET",
-    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-    appId: "YOUR_APP_ID"
-};
-
-// 檢查 __firebase_config 是否已定義且有效
-if (typeof __firebase_config !== 'undefined' && __firebase_config !== null && __firebase_config.trim() !== "") {
-  try {
-    parsedFirebaseConfig = JSON.parse(__firebase_config);
-  } catch (e) {
-    console.error("無法解析 __firebase_config，將使用預設 Firebase 設定。錯誤:", e);
-    parsedFirebaseConfig = defaultFirebaseConfig;
-  }
-} else {
-  // 如果 __firebase_config 未定義，或已定義但為空/無效，則使用預設設定
-  if (typeof __firebase_config !== 'undefined') { // 檢查是否已定義但無效
-     console.warn("__firebase_config 已定義但為空或無效，將使用預設 Firebase 設定。");
-  }
-  parsedFirebaseConfig = defaultFirebaseConfig;
-}
-const firebaseConfig = parsedFirebaseConfig;
-
-// 檢查 __app_id 是否已定義
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-language-learner-app-multilang';
-
-// 初始化 Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-setLogLevel('debug'); // Firebase 日誌級別
-
-// AI 生字簿的 Gemini API JSON Schema
-const vocabGenerationSchema = {
-  type: "OBJECT",
-  properties: {
-    "definitions": {
-      "type": "ARRAY",
-      "items": { "type": "STRING" },
-      "description": "List of definitions for the word/phrase in its original language."
-    },
-    "translation_zh_TW": {
-      "type": "STRING",
-      "description": "Traditional Chinese translation of the word/phrase."
-    },
-    "example_sentence": {
-      "type": "STRING",
-      "description": "An example sentence using the word/phrase in its original language."
-    },
-    "error": {
-      "type": "STRING",
-      "description": "Error message if the word/phrase cannot be processed.",
-      "optional": true
-    }
-  },
-  required: ["definitions", "translation_zh_TW", "example_sentence"]
-};
-
-// AI 文章洞察的 Gemini API JSON Schema
-const insightGenerationSchema = {
-  type: "OBJECT",
-  properties: {
-    "key_vocabulary": {
-      "type": "ARRAY",
-      "description": "List of 5-7 key vocabulary words from the article, suitable for an intermediate learner of the article's language. Focus on less common but useful words.",
-      "items": {
-        "type": "OBJECT",
-        "properties": {
-          "word": { "type": "STRING", "description": "The vocabulary word (in article's language)." },
-          "definition_en": { "type": "STRING", "description": "Concise definition of the word in the article's language (prompt will specify this, field name kept for compatibility)." },
-          "translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the word." },
-          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) containing the word. If the word appears multiple times, choose a clear example." }
-        },
-        "required": ["word", "definition_en", "translation_zh_TW", "example_sentence_from_article"]
-      }
-    },
-    "useful_phrases": {
-      "type": "ARRAY",
-      "description": "List of 3-5 useful phrases or idioms from the article (in article's language).",
-      "items": {
-        "type": "OBJECT",
-        "properties": {
-          "phrase": { "type": "STRING", "description": "The phrase or idiom (in article's language)." },
-          "meaning_en": { "type": "STRING", "description": "Concise meaning of the phrase in the article's language (prompt will specify this, field name kept for compatibility)." },
-          "translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the phrase." },
-          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) containing the phrase." }
-        },
-        "required": ["phrase", "meaning_en", "translation_zh_TW", "example_sentence_from_article"]
-      }
-    },
-    "grammar_highlights": {
-      "type": "ARRAY",
-      "description": "List of 2-3 noteworthy grammar structures or patterns from the article.",
-      "items": {
-        "type": "OBJECT",
-        "properties": {
-          "grammar_point_name_zh_TW": { "type": "STRING", "description": "Name of the grammar point in Traditional Chinese (e.g., '[ArticleLanguage]的過去完成式', '[ArticleLanguage]的被動語態', '[ArticleLanguage]的動名詞作主語')." },
-          "explanation_zh_TW": { "type": "STRING", "description": "Brief (1-2 sentences) explanation of the grammar rule in Traditional Chinese, focusing on its use in the example from the article." },
-          "example_sentence_from_article": { "type": "STRING", "description": "The exact sentence from the article (in article's language) showcasing this grammar point." }
-        },
-        "required": ["grammar_point_name_zh_TW", "explanation_zh_TW", "example_sentence_from_article"]
-      }
-    }
-  },
-  required: ["key_vocabulary", "useful_phrases", "grammar_highlights"]
-};
-
-// AI 動詞變化查詢的 Gemini API JSON Schema
-const verbConjugationSchema = {
-  type: "OBJECT",
-  properties: {
-    "language_code_provided": { "type": "STRING", "description": "The ISO 639-1 language code provided in the prompt (e.g., 'en', 'fr'). Helps AI confirm context." },
-    "verb_infinitive_src_lang": { "type": "STRING", "description": "The infinitive form of the verb in its original language." },
-    "language_name_for_display_zh_TW": { "type": "STRING", "description": "The name of the language in Traditional Chinese for display purposes (e.g., '英文', '法文')." },
-    "regularity_zh_TW": { "type": "STRING", "description": "Whether the verb is regular or irregular, in Traditional Chinese (e.g., '規則動詞', '不規則動詞')." },
-    "verb_type_zh_TW": { "type": "STRING", "description": "Type of verb in Traditional Chinese (e.g., '主要動詞', '助動詞', '情態動詞'). Optional, can be '不適用' or omitted if not clear.", "optional": true },
-    "conjugations": {
-      "type": "ARRAY",
-      "description": "Array of conjugation groups, typically by mood.",
-      "items": {
-        "type": "OBJECT",
-        "properties": {
-          "group_name_src_lang": { "type": "STRING", "description": "Name of the conjugation group (e.g., Mood like 'Indicatif', 'Subjonctif') in the original language. Optional.", "optional": true },
-          "group_name_zh_TW": { "type": "STRING", "description": "Name of the conjugation group in Traditional Chinese (e.g., '直陳式', '假設式')." },
-          "tenses_or_voices": {
-            "type": "ARRAY",
-            "description": "Array of tenses or voices within this group.",
-            "items": {
-              "type": "OBJECT",
-              "properties": {
-                "sub_group_name_src_lang": { "type": "STRING", "description": "Name of this specific tense or voice (e.g., Tense like 'Présent', 'Passé composé'; Voice like 'Active Voice') in the original language. Optional.", "optional": true },
-                "sub_group_name_zh_TW": { "type": "STRING", "description": "Name of this specific tense or voice in Traditional Chinese (e.g., '現在時', '複合過去時'; '主動態')." },
-                "forms": {
-                  "type": "ARRAY",
-                  "description": "List of conjugated forms for different persons/numbers.",
-                  "items": {
-                    "type": "OBJECT",
-                    "properties": {
-                      "person_descriptor_src_lang": { "type": "STRING", "description": "Person/Number descriptor, ideally pronoun in original language (e.g., 'Je', 'I', 'Yo'). If not applicable, use a general descriptor." },
-                      "conjugated_form_src_lang": { "type": "STRING", "description": "The conjugated verb form in the original language." }
-                    },
-                    "required": ["person_descriptor_src_lang", "conjugated_form_src_lang"]
-                  }
-                },
-                "example_sentence_src_lang": { "type": "STRING", "description": "An example sentence in the original language using a form from this tense/voice. Optional.", "optional": true },
-                "example_sentence_translation_zh_TW": { "type": "STRING", "description": "Traditional Chinese translation of the example sentence. Optional.", "optional": true }
-              },
-              "required": ["sub_group_name_zh_TW", "forms"]
-            }
-          }
-        },
-        "required": ["group_name_zh_TW", "tenses_or_voices"]
-      }
-    },
-    "notes_zh_TW": { "type": "STRING", "description": "Any additional notes about the verb's conjugation in Traditional Chinese (e.g., common irregularities, usage notes). Optional.", "optional": true },
-    "error": { "type": "STRING", "description": "Error message if the verb cannot be processed or is not found. Optional.", "optional": true }
-  },
-  required: ["language_code_provided", "verb_infinitive_src_lang", "language_name_for_display_zh_TW", "regularity_zh_TW", "conjugations"]
-};
-
-// AI 翻譯功能的 Gemini API JSON Schema
-const translationSchema = {
-  type: "OBJECT",
-  properties: {
-    "original_text": { 
-      "type": "STRING",
-      "description": "The original text that was provided for translation." 
-    },
-    "translated_text_zh_TW": { 
-      "type": "STRING", 
-      "description": "The translated text in Traditional Chinese." 
-    },
-    "source_language_code_detected": { 
-      "type": "STRING", 
-      "description": "The detected or provided ISO 639-1 language code of the original text." 
-    },
-    "error": { 
-      "type": "STRING", 
-      "description": "Error message if the translation failed.", 
-      "optional": true 
-    }
-  },
-  required: ["original_text", "translated_text_zh_TW", "source_language_code_detected"]
-};
-
-
-// SVG Icon Components
-const TrashIcon = ({ className = "w-5 h-5" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.58.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25V4.075c.827-.05 1.66-.075 2.5-.075zM7.443 16.669a1.25 1.25 0 01-1.226-1.244l-.81-10.124a.75.75 0 011.482-.23l.81 10.124a1.25 1.25 0 01-1.244 1.226zM12.557 16.67a1.25 1.25 0 01-1.244-1.227l.81-10.124a.75.75 0 011.482.23l-.81 10.124a1.25 1.25 0 01-1.226 1.244z" clipRule="evenodd" />
-  </svg>
-);
-const SparklesIcon = ({ className = "w-5 h-5" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401z" clipRule="evenodd" />
-  </svg>
-);
-const PlusCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-11.25a.75.75 0 00-1.5 0v2.5h-2.5a.75.75 0 000 1.5h2.5v2.5a.75.75 0 001.5 0v-2.5h2.5a.75.75 0 000-1.5h-2.5v-2.5z" clipRule="evenodd" />
-  </svg>
-);
-const MagnifyingGlassIcon = ({ className = "w-5 h-5" }) => ( 
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-  </svg>
-);
-const GlobeAltIcon = ({ className = "w-5 h-5" }) => ( 
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A11.978 11.978 0 0112 16.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 003 12c0 .778.099 1.533.284 2.253m0 0A11.978 11.978 0 0012 16.5c2.998 0 5.74-1.1 7.843-2.918" />
-  </svg>
-);
-const CheckCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" />
-  </svg>
-);
-const ChevronDownIcon = ({ className = "w-4 h-4 inline-block ml-1 transition-transform duration-200" }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-    <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-  </svg>
-);
-const ChevronRightIcon = ({ className = "w-4 h-4 inline-block ml-1 transition-transform duration-200" }) => (
- <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className={className}>
-  <path fillRule="evenodd" d="M8.22 5.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L11.94 10 8.22 6.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-</svg>
-);
-const ArrowDownTrayIcon = ({ className = "w-5 h-5" }) => ( 
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
-  </svg>
-);
-
-
-// Language mapping
-const languageCodeToName = {
-    'en': '英文',
-    'fr': '法文',
-    'ja': '日文',
-    'ko': '韓文',
-    'de': '德文',
-    'es': '西班牙文',
-    'it': '義大利文',
-    'zh': '中文', 
-};
-const getLanguageName = (code) => languageCodeToName[code] || code || '未知語言';
-
-
-// 主應用程式組件
-function App() {
-  const [userId, setUserId] = useState(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
-
-  const [urlInput, setUrlInput] = useState('');
-  const [currentArticleUrl, setCurrentArticleUrl] = useState('');
-  const [articleText, setArticleText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isVocabLoading, setIsVocabLoading] = useState(false);
-  const [isInsightLoading, setIsInsightLoading] = useState(false);
-  const [isVerbConjLoading, setIsVerbConjLoading] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false); 
-  const [error, setError] = useState('');
-
-  const [selectedText, setSelectedText] = useState('');
-  const articleDisplayRef = useRef(null);
-  const urlInputRef = useRef(null);
-
-  const [bookmarks, setBookmarks] = useState([]);
-  const [vocabulary, setVocabulary] = useState([]);
-  const [articleInsights, setArticleInsights] = useState(null);
-  const [verbToLookup, setVerbToLookup] = useState('');
-  const [verbConjugationData, setVerbConjugationData] = useState(null);
-  const [translationResult, setTranslationResult] = useState(null); 
-
-  const [showModal, setShowModal] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-  const [showTranslationModal, setShowTranslationModal] = useState(false); 
-
-  const [detectedLanguage, setDetectedLanguage] = useState(''); 
-  const [manualSelectedLanguage, setManualSelectedLanguage] = useState(''); 
-
-  const [selectedInsightItems, setSelectedInsightItems] = useState({}); 
-  const [verbDetailsOpenState, setVerbDetailsOpenState] = useState({}); 
-
-  useEffect(() => {
-    const styleId = 'google-font-gaegu-style';
-    if (document.getElementById(styleId)) return;
-
-    const style = document.createElement('style');
-    style.id = styleId;
-    style.innerHTML = `
-      @import url('https://fonts.googleapis.com/css2?family=Gaegu:wght@300;400;700&display=swap');
-      body {
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-        background-color: #FDF6E3; 
-        color: #58452D; 
-      }
-      .font-gaegu { 
-        font-family: 'Gaegu', cursive;
-      }
-      .hand-drawn-border {
-        border: 2px solid #A98C6A; 
-        border-radius: 12px; 
-        box-shadow: 3px 3px 0px #D5C4A1; 
-      }
-      .hand-drawn-button {
-        font-family: 'Gaegu', cursive; 
-        border: 2px solid #A98C6A;
-        border-radius: 8px;
-        box-shadow: 2px 2px 0px #D5C4A1;
-        transition: all 0.1s ease-in-out;
-      }
-      .hand-drawn-button:hover {
-        transform: translate(1px, 1px);
-        box-shadow: 1px 1px 0px #D5C4A1;
-      }
-      .hand-drawn-button:active {
-        transform: translate(2px, 2px);
-        box-shadow: none;
-      }
-      .prose-custom { 
-        color: #58452D; 
-        line-height: 1.8; 
-      }
-      .prose-custom p, .prose-custom li, .prose-custom strong, .prose-custom em {
-        color: #58452D;
-      }
-       .prose-custom h1, .prose-custom h2, .prose-custom h3 {
-        color: #8C6D46; 
-        border-bottom: 2px dashed #A98C6A; 
-        padding-bottom: 0.3em;
-      }
-      .section-title-gaegu {
-        font-family: 'Gaegu', cursive;
-      }
-      details > summary {
-        cursor: pointer;
-        font-weight: bold;
-        padding: 0.6em 0.85em; 
-        background-color: #f0eade; 
-        border-radius: 4px;
-        margin-bottom: 0.4em; 
-        border: 1px solid #d5c4a1;
-        display: flex; 
-        justify-content: space-between; 
-        align-items: center; 
-        transition: background-color 0.2s ease-in-out;
-      }
-      details > summary:hover {
-        background-color: #e8dcc8;
-      }
-      details[open] > summary {
-        background-color: #e0d3bc;
-      }
-      details > div {
-        padding: 0.85em 1.35em; 
-        border: 1px dashed #d5c4a1; 
-        border-top: none;
-        border-radius: 0 0 4px 4px;
-        background-color: #fdf9f0; 
-      }
-      .clickable-word {
-        cursor: pointer;
-        padding: 0.05em 0.15em; 
-        border-radius: 3px;
-        transition: background-color 0.2s;
-      }
-      .clickable-word:hover {
-        background-color: #fee2b3; 
-      }
-      .clickable-word-selected {
-        background-color: #fcd34d; 
-        font-weight: bold;
-      }
-      .verb-mood-summary {
-        background-color: #ede7f6 !important; 
-        color: #5e35b1 !important; 
-        border-bottom: 1px dashed #b39ddb !important; 
-      }
-      .verb-mood-summary:hover {
-        background-color: #d1c4e9 !important; 
-      }
-      details[open] > .verb-mood-summary {
-        background-color: #b39ddb !important; 
-        color: #ffffff !important; 
-      }
-      .verb-tense-summary {
-        background-color: #e3f2fd !important; 
-        color: #1e88e5 !important; 
-        font-size: 0.95em; 
-        border-bottom: 1px dashed #90caf9 !important; 
-        margin-left: 0.6rem; 
-        margin-right: 0.6rem; 
-      }
-      .verb-tense-summary:hover {
-        background-color: #bbdefb !important; 
-      }
-      details[open] > .verb-tense-summary {
-        background-color: #90caf9 !important; 
-        color: #0d47a1 !important; 
-      }
-      .verb-forms-list li { 
-        padding: 0.35rem 0; 
-        border-bottom: 1px dotted #e0e0e0; 
-      }
-      .verb-forms-list li:last-child {
-        border-bottom: none; 
-      }
-      .verb-example-sentence { 
-        margin-top: 0.85rem; 
-        padding: 0.85rem; 
-        background-color: #f5f5f5; 
-        border-radius: 4px;
-        border-left: 3px solid #7e57c2; 
-        font-style: normal; 
-      }
-      .verb-example-sentence p {
-         margin-bottom: 0.3rem; 
-      }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      const styleElement = document.getElementById(styleId);
-      if (styleElement && styleElement.parentNode) {
-        styleElement.parentNode.removeChild(styleElement);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUserId(user.uid);
-      } else {
-        try {
-          if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-            await signInWithCustomToken(auth, __initial_auth_token);
-          } else {
-            await signInAnonymously(auth); 
-          }
-        } catch (e) {
-          console.error("Firebase Auth Error: ", e);
-          setError("認證失敗，部分功能可能無法使用。");
-          setUserId('anonymous_' + Date.now()); 
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHIFT TOOL</title> <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
-      }
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe(); 
-  }, []);
-
-  useEffect(() => {
-    if (!isAuthReady || !userId) return; 
-
-    // --- Firestore 索引重要提示 ---
-    // 為了讓 orderBy("createdAt", "desc") 高效運作並避免 Firebase 在控制台中顯示警告/錯誤，
-    // 請確保您已在 Firestore 資料庫中建立了相應的複合索引。
-    //
-    // 對於書籤 (bookmarks):
-    //   集合路徑 (Collection Path): artifacts/{appId}/users/{userId}/languageLearnerBookmarks
-    //   欄位 (Field): createdAt, 排序 (Order): 遞減 (Descending)
-    //
-    // 對於生字簿 (vocabulary):
-    //   集合路徑 (Collection Path): artifacts/{appId}/users/{userId}/languageLearnerVocabulary
-    //   欄位 (Field): createdAt, 排序 (Order): 遞減 (Descending)
-    //
-    // 如果索引缺失，Firebase 控制台通常會提供一個直接連結來幫助您建立這些索引。
-    // --------------------------
-
-    const bookmarksPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks`;
-    const bookmarksQuery = query(collection(db, bookmarksPath), orderBy("createdAt", "desc"));
-    const unsubBookmarks = onSnapshot(bookmarksQuery, (snapshot) => {
-      setBookmarks(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => { 
-      console.error("載入書籤時發生 Firestore 錯誤:", err); 
-      setError(`無法載入書籤：${err.message}`); 
-    });
-
-    const vocabPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary`;
-    const vocabQuery = query(collection(db, vocabPath), orderBy("createdAt", "desc"));
-    const unsubVocab = onSnapshot(vocabQuery, (snapshot) => {
-      setVocabulary(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (err) => { 
-      console.error("載入生字簿時發生 Firestore 錯誤:", err); 
-      setError(`無法載入生字簿：${err.message}`); 
-    });
-    
-    return () => {
-      unsubBookmarks();
-      unsubVocab();
-    };
-  }, [isAuthReady, userId, appId]); // Added appId to dependency array as it's used in path
-
-  const featureLanguage = manualSelectedLanguage || detectedLanguage;
-  const featureLanguageName = getLanguageName(featureLanguage);
-
-  const detectLanguageOfText = async (textToDetect) => {
-    if (!textToDetect || textToDetect.trim().length < 20) { 
-        console.warn("Text too short for reliable language detection or empty.");
-        return 'unknown'; 
-    }
-    const snippet = textToDetect.substring(0, 500); 
-    const prompt = `Detect the language of the following text. Respond ONLY with the two-letter ISO 639-1 language code (e.g., "en" for English, "fr" for French, "ja" for Japanese, "ko" for Korean, "de" for German, "es" for Spanish, "it" for Italian). Text: "${snippet}"`;
-    try {
-        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-        const payload = { contents: chatHistory };
-        const apiKey = ""; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: "無法解析語言偵測錯誤回應" }));
-            console.error("Gemini API error for language detection:", errorData);
-            throw new Error(`語言偵測失敗 (HTTP ${response.status}). ${errorData.error?.message || errorData.message || ''}`);
+        .calendar-day {
+            min-height: 100px;
+            transition: background-color 0.3s;
         }
-        const result = await response.json();
-        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-            const langCode = result.candidates[0].content.parts[0].text.trim().toLowerCase().substring(0, 2); 
-            const supportedCodes = Object.keys(languageCodeToName); 
-            if (supportedCodes.includes(langCode)) {
-                return langCode;
-            } else {
-                console.warn(`Detected language code "${langCode}" is not in the primary supported list or is unclear. Full response: ${result.candidates[0].content.parts[0].text}`);
-                return 'unknown'; 
-            }
-        } else {
-            console.error("Unexpected Gemini API response structure for language detection:", result);
-            throw new Error("無法解析語言偵測回應。");
+        .calendar-day:hover {
+            background-color: #f0f9ff; /* light-blue-50 */
         }
-    } catch (e) {
-        console.error("Language detection error:", e);
-        throw e; 
-    }
-};
-
-  const handleFetchArticle = async () => {
-    if (!urlInput.trim()) {
-      setModalMessage("請輸入網址。");
-      setShowModal(true);
-      return;
-    }
-    setIsLoading(true); setError(''); setArticleText(''); setCurrentArticleUrl(''); setSelectedText('');
-    setArticleInsights(null); setDetectedLanguage(''); setVerbConjugationData(null); setTranslationResult(null);
-    setSelectedInsightItems({}); 
-    setVerbDetailsOpenState({}); 
-    
-    try {
-      const prompt = `Extract the main textual content from the following URL. Return the text in its original language. Preserve paragraph breaks if possible. Do not summarize or add any commentary. URL: ${urlInput}`;
-      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-      const payload = { contents: chatHistory };
-      const apiKey = ""; 
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!response.ok) { 
-        const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
-        console.error("Gemini API error for article fetch:", errorData);
-        throw new Error(`無法從網址提取內容 (HTTP ${response.status})。${errorData.error?.message || errorData.message || ''}`); 
-      }
-      const result = await response.json();
-      if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-        const fullArticleText = result.candidates[0].content.parts[0].text;
-        setArticleText(fullArticleText);
-        setCurrentArticleUrl(urlInput);
-
-        try {
-            const langCode = await detectLanguageOfText(fullArticleText);
-            setDetectedLanguage(langCode); 
-            if (!manualSelectedLanguage && (langCode === 'unknown' || !languageCodeToName[langCode])) {
-                 setModalMessage(`成功提取文章內容，但無法明確偵測其語言 ("${getLanguageName(langCode)}")，或該語言目前未完全支援。部分 AI 功能可能表現不如預期。您也可以嘗試手動選擇語言。`);
-                 setShowModal(true);
-            } else if (manualSelectedLanguage && langCode !== manualSelectedLanguage && langCode !== 'unknown') {
-                setModalMessage(`提醒：文章偵測到的語言為 ${getLanguageName(langCode)}，但您已手動選擇 ${getLanguageName(manualSelectedLanguage)}。相關功能將優先使用手動選擇的語言。`);
-                setShowModal(true);
-            }
-        } catch (langDetectError) {
-            console.error("Language detection failed after fetching article:", langDetectError);
-            setError(prev => `${prev}\n語言偵測失敗: ${langDetectError.message}`); 
-            setModalMessage(`文章提取成功，但語言偵測失敗：${langDetectError.message}。AI 功能可能受影響。請嘗試手動選擇語言。`);
-            setShowModal(true);
-            setDetectedLanguage('unknown'); 
+        .assigned-person { /* For Primary Shift */
+            font-size: 0.75rem; /* text-xs */
+            padding: 3px 5px;
+            border-radius: 4px; /* rounded-sm */
+            display: block;
+            text-align: center;
+            word-break: break-all;
+            margin-top: 2px; /* mt-0.5 */
         }
-
-      } else { 
-        console.error("Unexpected Gemini API response structure for article fetch:", result);
-        throw new Error("無法解析提取的內容。回應格式不符預期。"); 
-      }
-    } catch (e) { 
-      console.error("Fetch article error:", e);
-      const errorMessage = `提取文章失敗：${e.message}`;
-      setError(errorMessage);
-      setModalMessage(errorMessage);
-      setShowModal(true);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleChangeSource = () => {
-    setUrlInput(''); setCurrentArticleUrl(''); setArticleText(''); setSelectedText(''); setError('');
-    setArticleInsights(null);
-    setDetectedLanguage(''); 
-    setManualSelectedLanguage(''); 
-    setVerbToLookup('');
-    setVerbConjugationData(null);
-    setTranslationResult(null);
-    setSelectedInsightItems({}); 
-    setVerbDetailsOpenState({}); 
-    if (articleDisplayRef.current) articleDisplayRef.current.scrollTop = 0; 
-    if (urlInputRef.current) urlInputRef.current.focus(); 
-  };
-
-  const handleTextSelection = () => {
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-        const container = range.commonAncestorContainer;
-        if (articleDisplayRef.current && articleDisplayRef.current.contains(container) && 
-            (!selection.anchorNode || !selection.anchorNode.parentElement.classList.contains('clickable-word'))) {
-            const text = selection.toString().trim();
-            if (text && text !== selectedText) setSelectedText(text); 
-            else if (!text && selectedText) setSelectedText(''); 
-        } else if (!articleDisplayRef.current || !articleDisplayRef.current.contains(container)) {
-            if (selectedText) setSelectedText('');
+        .assigned-group-secondary { /* For Secondary Shift Display on its tab */
+            font-size: 1.5rem; /* text-2xl */
+            font-weight: 600; /* font-semibold */
+            padding: 4px; /* p-1 */
+            border-radius: 4px; /* rounded-sm */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            margin-top: 4px; /* mt-1 */
+            border: 1px solid;
+            width: 100%; /* w-full */
+            height: calc(100% - 20px);
+            box-sizing: border-box;
         }
-    } else {
-        if (selectedText) setSelectedText(''); 
-    }
-  };
-
-  const handleWordClick = (word) => {
-    const cleanedWord = word.replace(/[.,!?;:"“”‘’()]$/g, '').trim(); 
-    if (cleanedWord) {
-      setSelectedText(cleanedWord); 
-    }
-  };
- 
-  const addBookmark = async () => {
-    const langForBookmark = manualSelectedLanguage || detectedLanguage || 'unknown';
-    if (!currentArticleUrl || !userId) { 
-        setModalMessage("沒有可收藏的文章 URL 或使用者未登入。"); setShowModal(true); return; 
-    }
-    const existingBookmark = bookmarks.find(b => b.url === currentArticleUrl);
-    if (existingBookmark) { 
-        setModalMessage("這篇文章已經在您的收藏中了！"); setShowModal(true); return; 
-    }
-    const tempLoadingSetter = setIsLoading; 
-    tempLoadingSetter(true); 
-    try {
-      const bookmarksCollectionPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks`;
-      const title = articleText.substring(0, 100) + (articleText.length > 100 ? '...' : '') || currentArticleUrl; 
-      await addDoc(collection(db, bookmarksCollectionPath), {
-        url: currentArticleUrl, 
-        title: title, 
-        detectedLanguage: detectedLanguage || 'unknown', 
-        language: langForBookmark, 
-        createdAt: serverTimestamp() 
-      });
-      setModalMessage("文章已成功收藏！"); setShowModal(true);
-    } catch (e) { 
-        console.error("Error adding bookmark:", e);
-        const errorMessage = `收藏文章失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-    } finally { tempLoadingSetter(false); }
-  };
-
-  const removeBookmark = async (bookmarkId) => {
-    if (!userId) return;
-    const tempLoadingSetter = setIsLoading;
-    tempLoadingSetter(true); 
-    try {
-      const bookmarkDocPath = `artifacts/${appId}/users/${userId}/languageLearnerBookmarks/${bookmarkId}`;
-      await deleteDoc(doc(db, bookmarkDocPath));
-      setModalMessage("收藏已移除。"); setShowModal(true);
-    } catch (e) { 
-        console.error("Error removing bookmark:", e);
-        const errorMessage = `移除收藏失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-    } finally { tempLoadingSetter(false); }
-  };
-
-  const loadBookmarkedArticle = (url, lang) => { 
-    setUrlInput(url); 
-    setArticleText(''); 
-    setCurrentArticleUrl(''); 
-    setSelectedText(''); 
-    setArticleInsights(null);
-    setDetectedLanguage(''); 
-    setManualSelectedLanguage(lang || ''); 
-    setVerbToLookup('');
-    setVerbConjugationData(null);
-    setTranslationResult(null);
-    setSelectedInsightItems({});
-    setVerbDetailsOpenState({});
-    setError('');
-    setTimeout(() => handleFetchArticle(), 0); 
-  };
- 
-  const addVocabEntry = async (term, definition_src_lang = '', translation_zh_TW = '', example_sentence_src_lang = '') => {
-    const termToAdd = term || selectedText; 
-    if (!termToAdd || !userId) { 
-        setModalMessage("沒有選取的文字或使用者未登入。"); setShowModal(true); return false; 
-    }
-    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
-        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法加入生字簿。請先確認文章已正確載入並偵測到語言，或手動選擇一個有效語言。`);
-        setShowModal(true);
-        return false;
-    }
-
-    const existingVocab = vocabulary.find(v => v.word.toLowerCase() === termToAdd.toLowerCase() && v.language === featureLanguage);
-    if (existingVocab) { 
-        setModalMessage(`「${termToAdd}」(${featureLanguageName}) 已經在您的生字簿中了！`); setShowModal(true); return false; 
-    }
-    setIsVocabLoading(true); setError('');
-    try {
-      let vocabData = {
-        definitions: definition_src_lang && typeof definition_src_lang === 'string' ? [definition_src_lang] : (Array.isArray(definition_src_lang) ? definition_src_lang : []),
-        translation_zh_TW: translation_zh_TW || '',
-        example_sentence: example_sentence_src_lang || '',
-      };
-
-      if (!definition_src_lang || !translation_zh_TW || !example_sentence_src_lang) {
-        const currentLangNameForPrompt = getLanguageName(featureLanguage); 
-        const prompt = `For the ${currentLangNameForPrompt} word or short phrase '${termToAdd}', provide: 
-        1. Up to 2 common definitions in ${currentLangNameForPrompt}. 
-        2. Its translation to Traditional Chinese. 
-        3. One example sentence using the word/phrase in ${currentLangNameForPrompt}. 
-        Respond ONLY with a JSON object matching this schema: { "definitions": ["definition1 in ${currentLangNameForPrompt}", "definition2 in ${currentLangNameForPrompt}"], "translation_zh_TW": "中文翻譯", "example_sentence": "Example sentence in ${currentLangNameForPrompt} here." }. 
-        If it's not a valid word/phrase or you cannot provide this information, include an "error" field in your JSON response, like { "error": "Could not process." }.`;
-        
-        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-        const payload = {
-          contents: chatHistory,
-          generationConfig: { responseMimeType: "application/json", responseSchema: vocabGenerationSchema }
-        };
-        const apiKey = ""; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
-            throw new Error(`AI 查詢失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+        .modal {
+            display: none; position: fixed; z-index: 100;
+            left: 0; top: 0; width: 100%; height: 100%;
+            overflow: auto; background-color: rgba(0,0,0,0.5);
         }
-        const result = await response.json();
-        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-          const parsedResult = JSON.parse(result.candidates[0].content.parts[0].text);
-          if (parsedResult.error) throw new Error(`AI 無法處理 「${termToAdd}」：${parsedResult.error}`);
-          if (!parsedResult.definitions || !parsedResult.translation_zh_TW || !parsedResult.example_sentence) throw new Error(`AI 回應缺少必要資訊。`);
-          vocabData = parsedResult; 
-        } else throw new Error("AI 回應格式不符預期。");
-      }
-
-      const vocabCollectionPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary`;
-      await addDoc(collection(db, vocabCollectionPath), {
-        word: termToAdd, 
-        language: featureLanguage, 
-        definitions: Array.isArray(vocabData.definitions) ? vocabData.definitions : [vocabData.definitions].filter(Boolean), 
-        translation_zh_TW: vocabData.translation_zh_TW,
-        example_sentence: vocabData.example_sentence,
-        articleUrl: currentArticleUrl || 'general', 
-        createdAt: serverTimestamp()
-      });
-      setModalMessage(`「${termToAdd}」 (${featureLanguageName}) 已成功加入生字簿！`); setShowModal(true);
-      return true; 
-    } catch (e) { 
-        console.error("Error adding vocab entry:", e);
-        const errorMessage = `加入生字簿失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-        return false; 
-    } finally { setIsVocabLoading(false); }
-  };
-
-  const removeVocabEntry = async (vocabId) => {
-    if (!userId) return;
-    const tempLoadingSetter = setIsLoading; 
-    tempLoadingSetter(true); 
-    try {
-      const vocabDocPath = `artifacts/${appId}/users/${userId}/languageLearnerVocabulary/${vocabId}`;
-      await deleteDoc(doc(db, vocabDocPath));
-      setModalMessage("生字已移除。"); setShowModal(true);
-    } catch (e) { 
-        console.error("Error removing vocab entry:", e);
-        const errorMessage = `移除生字失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-    } finally { tempLoadingSetter(false); }
-  };
-
-  const getRenderedArticleText = useCallback(() => {
-    if (!articleText && !isLoading) return <p className="text-stone-500 p-4">請輸入網址並點擊「讀取文章」以開始。</p>;
-    if (isLoading && !articleText) return <p className="text-stone-500 p-4">正在努力讀取文章中...</p>;
-    
-    const lines = articleText.split('\n'); 
-    return lines.map((line, lineIndex) => {
-        const segments = line.split(/(\s+|[.,!?;:"“”‘’()])/g).filter(Boolean); 
-
-        return (
-            <p key={`line-${lineIndex}`} className="mb-4"> 
-                {segments.map((segment, segmentIndex) => {
-                    const isWhitespaceOrPunctuation = /^\s+$|^[.,!?;:"“”‘’()]$/.test(segment);
-                    
-                    if (isWhitespaceOrPunctuation) {
-                        return <React.Fragment key={`segment-ws-${lineIndex}-${segmentIndex}`}>{segment}</React.Fragment>;
-                    }
-                    
-                    const isSelectedWord = selectedText === segment && segment !== '';
-
-                    return (
-                        <span
-                            key={`word-${lineIndex}-${segmentIndex}`}
-                            className={`clickable-word ${isSelectedWord ? 'clickable-word-selected' : ''}`}
-                            onClick={() => handleWordClick(segment)} 
-                        >
-                            {segment}
-                        </span>
-                    );
-                })}
-            </p>
-        );
-    });
-  }, [articleText, isLoading, selectedText]); 
-
-  const handleFetchArticleInsights = async () => {
-    if (!articleText || !userId) { 
-        setModalMessage("沒有文章內容或使用者未登入。"); setShowModal(true); return; 
-    }
-    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
-        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法進行深度分析。`);
-        setShowModal(true);
-        return;
-    }
-    setIsInsightLoading(true); setError(''); setArticleInsights(null); setSelectedInsightItems({}); 
-    try {
-      const currentLangNameForPrompt = getLanguageName(featureLanguage);
-      const prompt = `請分析以下${currentLangNameForPrompt}文章，並提供學習洞察。文章內容如下：\n\n"${articleText}"\n\n請嚴格依照以下JSON格式回傳，包含重點單字、實用片語和文法結構亮點。
-      - 對於「重點單字」(key_vocabulary):
-          - "word": The vocabulary word in ${currentLangNameForPrompt}.
-          - "definition_en": Concise definition of the word in ${currentLangNameForPrompt}. (Even though field name is _en, provide in ${currentLangNameForPrompt})
-          - "translation_zh_TW": Traditional Chinese translation of the word.
-          - "example_sentence_from_article": The exact sentence from the article in ${currentLangNameForPrompt} containing the word.
-      - 對於「實用片語」(useful_phrases):
-          - "phrase": The phrase or idiom in ${currentLangNameForPrompt}.
-          - "meaning_en": Concise meaning of the phrase in ${currentLangNameForPrompt}. (Even though field name is _en, provide in ${currentLangNameForPrompt})
-          - "translation_zh_TW": Traditional Chinese translation of the phrase.
-          - "example_sentence_from_article": The exact sentence from the article in ${currentLangNameForPrompt} containing the phrase.
-      - 對於「文法結構亮點」(grammar_highlights):
-          - "grammar_point_name_zh_TW": Name of the grammar point in Traditional Chinese (e.g., '${currentLangNameForPrompt}的過去完成式', '${currentLangNameForPrompt}的被動語態').
-          - "explanation_zh_TW": Brief (1-2 sentences) explanation of the grammar rule in Traditional Chinese, focusing on its use in the example from the ${currentLangNameForPrompt} article.
-          - "example_sentence_from_article": The exact sentence from the ${currentLangNameForPrompt} article showcasing this grammar point.`;
-
-      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-      const payload = {
-        contents: chatHistory,
-        generationConfig: { responseMimeType: "application/json", responseSchema: insightGenerationSchema }
-      };
-      const apiKey = ""; 
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-      const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: "無法解析錯誤回應" }));
-        console.error("Gemini API error for insights:", errorData);
-        throw new Error(`AI 深度分析失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
-      }
-      const result = await response.json();
-      if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-        const insightsData = JSON.parse(result.candidates[0].content.parts[0].text);
-        if (insightsData && insightsData.key_vocabulary && insightsData.useful_phrases && insightsData.grammar_highlights) {
-            setArticleInsights(insightsData);
-        } else {
-            console.error("AI 深度分析回應 JSON 結構不完整:", insightsData);
-            throw new Error("AI 深度分析回應的資料結構不完整。");
+        .modal-content {
+            background-color: #fefefe; margin: 5% auto; padding: 20px; /* p-5 */
+            border: 1px solid #888; width: 90%; max-width: 600px;
+            border-radius: 8px; /* rounded-lg */
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
-      } else { 
-        console.error("Unexpected Gemini API response structure for insights:", result);
-        throw new Error("AI 深度分析回應格式不符預期。"); 
-      }
-    } catch (e) { 
-        console.error("Error fetching article insights:", e);
-        const errorMessage = `AI 深度分析失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-    } finally { setIsInsightLoading(false); }
-  };
-
-  const handleToggleInsightItemSelection = (itemKey) => { 
-    setSelectedInsightItems(prev => ({ 
-      ...prev,
-      [itemKey]: !prev[itemKey] 
-    }));
-  };
-
-  const handleBulkAddSelectedInsightItems = async () => { 
-    const vocabItemsToAdd = articleInsights?.key_vocabulary?.filter(item => selectedInsightItems[item.word]) || [];
-    const phraseItemsToAdd = articleInsights?.useful_phrases?.filter(item => selectedInsightItems[item.phrase]) || [];
-
-    if (vocabItemsToAdd.length === 0 && phraseItemsToAdd.length === 0) {
-      setModalMessage("請先勾選要加入的單字或片語。");
-      setShowModal(true);
-      return;
-    }
-
-    setIsVocabLoading(true); 
-    let successCount = 0;
-    let alreadyExistsCount = 0;
-    let errorCount = 0;
-
-    for (const item of vocabItemsToAdd) {
-      const existingVocab = vocabulary.find(v => v.word.toLowerCase() === item.word.toLowerCase() && v.language === featureLanguage);
-      if (existingVocab) {
-        alreadyExistsCount++;
-        continue; 
-      }
-      const added = await addVocabEntry(item.word, item.definition_en, item.translation_zh_TW, item.example_sentence_from_article);
-      if (added) {
-        successCount++;
-      } else {
-        errorCount++; 
-      }
-    }
-
-    for (const item of phraseItemsToAdd) {
-      const existingVocab = vocabulary.find(v => v.word.toLowerCase() === item.phrase.toLowerCase() && v.language === featureLanguage);
-      if (existingVocab) {
-        alreadyExistsCount++;
-        continue;
-      }
-      const added = await addVocabEntry(item.phrase, item.meaning_en, item.translation_zh_TW, item.example_sentence_from_article);
-      if (added) {
-        successCount++;
-      } else {
-        errorCount++;
-      }
-    }
-
-    setIsVocabLoading(false);
-
-    let summaryMessage = `批次加入完成：\n- ${successCount} 個新項目 (單字/片語) 成功加入。\n- ${alreadyExistsCount} 個項目已存在生字簿中。`;
-    if (errorCount > 0) {
-      summaryMessage += `\n- ${errorCount} 個項目加入失敗 (詳見先前錯誤訊息)。`;
-    }
-    setModalMessage(summaryMessage);
-    setShowModal(true);
-    setSelectedInsightItems({}); 
-  };
-
-
-  const handleFetchVerbConjugation = async () => {
-    if (!verbToLookup.trim()) {
-        setModalMessage("請輸入要查詢的動詞。"); setShowModal(true); return;
-    }
-    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
-        setModalMessage(`無法確定有效語言 ("${featureLanguageName}")，無法查詢動詞變化。請先載入文章並確認語言，或手動選擇一個有效語言。`);
-        setShowModal(true);
-        return;
-    }
-    setIsVerbConjLoading(true); setError(''); setVerbConjugationData(null); setVerbDetailsOpenState({}); 
-    try {
-        const currentLangNameForPrompt = getLanguageName(featureLanguage);
-        const prompt = `You are a linguistics expert specializing in verb conjugations. The user wants to understand how the ${currentLangNameForPrompt} verb '${verbToLookup}' is conjugated. The language code for ${currentLangNameForPrompt} is '${featureLanguage}'.
-Please provide a detailed conjugation for the verb.
-Respond ONLY with a JSON object adhering to the schema provided in the 'generationConfig.responseSchema'.
-Key instructions for the JSON content:
-- 'language_code_provided': This should be '${featureLanguage}'.
-- 'verb_infinitive_src_lang': The infinitive (base) form of '${verbToLookup}' in ${currentLangNameForPrompt}.
-- 'language_name_for_display_zh_TW': This should be '${currentLangNameForPrompt}'.
-- 'regularity_zh_TW': Describe if the verb is regular or irregular in Traditional Chinese (e.g., '規則動詞', '不規則動詞').
-- 'verb_type_zh_TW': Specify the type of verb in Traditional Chinese (e.g., '主要動詞', '助動詞', '情態動詞'). If not applicable or unknown, you can state '不適用' or omit the field if schema allows.
-- 'conjugations': This is an array. Each item represents a major conjugation category, usually a mood.
-  - 'group_name_src_lang': The name of this category (e.g., mood like 'Indicatif', 'Subjonctif') in ${currentLangNameForPrompt}. This is optional but preferred.
-  - 'group_name_zh_TW': The name of this category in Traditional Chinese (e.g., '直陳式', '假設式').
-  - 'tenses_or_voices': This is an array. Each item represents a sub-category, typically a tense or a voice within the main group.
-    - 'sub_group_name_src_lang': The name of this sub-category (e.g., tense like 'Présent', 'Passé composé'; voice like 'Active Voice') in ${currentLangNameForPrompt}. Optional but preferred.
-    - 'sub_group_name_zh_TW': The name of this sub-category in Traditional Chinese (e.g., '現在時', '複合過去時'; '主動態').
-    - 'forms': This is an array of conjugated forms.
-      - 'person_descriptor_src_lang': The person/number identifier, ideally the pronoun in ${currentLangNameForPrompt} (e.g., for French: 'Je', 'Tu', 'Il/Elle/On', 'Nous', 'Vous', 'Ils/Elles'; for English: 'I', 'You', 'He/She/It', 'We', 'They'). If specific pronouns are not standard for listing (e.g., for Japanese), use a general descriptor in ${currentLangNameForPrompt} or a Traditional Chinese descriptor like '第一人稱單數'.
-      - 'conjugated_form_src_lang': The actual conjugated verb form in ${currentLangNameForPrompt}.
-    - 'example_sentence_src_lang': An example sentence in ${currentLangNameForPrompt} that uses one of the forms from this sub-group. This is optional.
-    - 'example_sentence_translation_zh_TW': The Traditional Chinese translation of the example sentence. This is optional.
-- 'notes_zh_TW': Any additional relevant notes about the verb's conjugation, usage, or irregularities, in Traditional Chinese. This is optional.
-If the verb '${verbToLookup}' is invalid for ${currentLangNameForPrompt}, cannot be found, or if you cannot provide the conjugation information as requested, your JSON response should include an 'error' field explaining the issue (e.g., { 'error': '無法處理此動詞或在${currentLangNameForPrompt}中找不到此動詞。' }). Ensure the rest of the main required fields are still present if possible, perhaps with placeholder or 'N/A' values if the error is partial.`;
-
-        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-        const payload = {
-            contents: chatHistory,
-            generationConfig: { responseMimeType: "application/json", responseSchema: verbConjugationSchema }
-        };
-        const apiKey = ""; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: "無法解析動詞變化錯誤回應" }));
-            console.error("Gemini API error for verb conjugation:", errorData);
-            throw new Error(`AI 動詞變化查詢失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+        .close-button {
+            color: #aaa; float: right; font-size: 28px; /* text-3xl approx */
+            font-weight: bold;
         }
-        const result = await response.json();
-        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-            const conjugationResult = JSON.parse(result.candidates[0].content.parts[0].text);
-            if (conjugationResult.error) {
-                setModalMessage(`AI 無法處理動詞「${verbToLookup}」(${currentLangNameForPrompt})：${conjugationResult.error}`);
-                setShowModal(true);
-                setVerbConjugationData({ error: conjugationResult.error, verb_infinitive_src_lang: verbToLookup, language_name_for_display_zh_TW: currentLangNameForPrompt });
-            } else if (conjugationResult.conjugations) {
-                setVerbConjugationData(conjugationResult);
-                const initialOpenState = {};
-                conjugationResult.conjugations.forEach((mood, moodIndex) => {
-                    initialOpenState[`mood-${moodIndex}`] = moodIndex === 0; 
-                    mood.tenses_or_voices.forEach((tense, tenseIndex) => {
-                        initialOpenState[`mood-${moodIndex}-tense-${tenseIndex}`] = moodIndex === 0 && tenseIndex === 0; 
-                    });
-                });
-                setVerbDetailsOpenState(initialOpenState);
-
-            } else {
-                 throw new Error("AI 動詞變化回應缺少必要資訊 (conjugations)。");
-            }
-        } else {
-            console.error("Unexpected Gemini API response structure for verb conjugation:", result);
-            throw new Error("AI 動詞變化回應格式不符預期。");
+        .close-button:hover, .close-button:focus {
+            color: black; text-decoration: none; cursor: pointer;
         }
-    } catch (e) {
-        console.error("Error fetching verb conjugation:", e);
-        const errorMessage = `查詢動詞變化失敗：${e.message}`;
-        setError(errorMessage);
-        setModalMessage(errorMessage);
-        setShowModal(true);
-        setVerbConjugationData({ error: errorMessage, verb_infinitive_src_lang: verbToLookup, language_name_for_display_zh_TW: getLanguageName(featureLanguage) });
-    } finally {
-        setIsVerbConjLoading(false);
-    }
-};
-
-const toggleVerbDetailOpenState = (key) => {
-    setVerbDetailsOpenState(prev => ({ ...prev, [key]: !prev[key] }));
-};
-
-const setAllVerbDetailsOpenState = (isOpen) => {
-    if (!verbConjugationData || !verbConjugationData.conjugations) return; 
-    const newState = {};
-    verbConjugationData.conjugations.forEach((mood, moodIndex) => {
-        const moodKey = `mood-${moodIndex}`;
-        newState[moodKey] = isOpen;
-        mood.tenses_or_voices.forEach((tense, tenseIndex) => {
-            const tenseKey = `${moodKey}-tense-${tenseIndex}`;
-            newState[tenseKey] = isOpen;
-        });
-    });
-    setVerbDetailsOpenState(newState);
-};
-
-
-const handleTranslateSelectedText = async () => {
-    if (!selectedText) {
-        setModalMessage("請先在文章中選取一些文字。"); setShowModal(true); return;
-    }
-    if (!featureLanguage || featureLanguage === 'unknown' || !languageCodeToName[featureLanguage]) {
-        setModalMessage(`無法確定有效來源語言 ("${featureLanguageName}")，無法進行翻譯。`);
-        setShowModal(true);
-        return;
-    }
-    setIsTranslating(true); setError(''); setTranslationResult(null);
-    try {
-        const sourceLangName = getLanguageName(featureLanguage);
-        const prompt = `Please translate the following text from ${sourceLangName} (language code: ${featureLanguage}) to Traditional Chinese (target language code: zh-TW).
-Original Text: "${selectedText}"
-Respond ONLY with a JSON object adhering to this schema: ${JSON.stringify(translationSchema)}.
-If translation is not possible or an error occurs, include an "error" field in your JSON.`;
-
-        const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-        const payload = {
-            contents: chatHistory,
-            generationConfig: { responseMimeType: "application/json", responseSchema: translationSchema }
-        };
-        const apiKey = ""; 
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({ message: "無法解析翻譯錯誤回應" }));
-            console.error("Gemini API error for translation:", errorData);
-            throw new Error(`AI 翻譯失敗 (HTTP ${response.status})。 ${errorData.error?.message || errorData.message || ''}`);
+        .staff-list-modal::-webkit-scrollbar, .modal-content::-webkit-scrollbar { width: 8px; }
+        .staff-list-modal::-webkit-scrollbar-track, .modal-content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; } /* rounded-full */
+        .staff-list-modal::-webkit-scrollbar-thumb, .modal-content::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; } /* rounded-full */
+        .staff-list-modal::-webkit-scrollbar-thumb:hover, .modal-content::-webkit-scrollbar-thumb:hover { background: #555; }
+        .custom-alert {
+            display: none; position: fixed; top: 20px; left: 50%;
+            transform: translateX(-50%); padding: 15px; /* p-4 approx */
+            border: 1px solid; border-radius: 8px; /* rounded-lg */
+            z-index: 1050;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); min-width: 300px; text-align: center;
         }
-        const result = await response.json();
-        if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
-            const translationData = JSON.parse(result.candidates[0].content.parts[0].text);
-            if (translationData.error) {
-                throw new Error(`AI 翻譯時發生錯誤：${translationData.error}`);
-            }
-            setTranslationResult(translationData);
-            setShowTranslationModal(true); 
-        } else {
-            console.error("Unexpected Gemini API response structure for translation:", result);
-            throw new Error("AI 翻譯回應格式不符預期。");
+        .custom-alert.error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb;}
+        .custom-alert.success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .custom-alert.loading { background-color: #fff3cd; color: #856404; border-color: #ffeeba; }
+        .custom-alert.info { background-color: #d1ecf1; color: #0c5460; border-color: #bee5eb; }
+        .staff-color-indicator {
+            display: inline-block; width: 12px; height: 12px; /* w-3 h-3 */
+            border-radius: 3px; /* rounded-sm */
+            margin-right: 8px; /* mr-2 */
+            border: 1px solid #888;
+            vertical-align: middle;
         }
-    } catch (e) {
-        console.error("Error translating text:", e);
-        const errorMessage = `翻譯失敗：${e.message}`;
-        setError(errorMessage); 
-        setModalMessage(errorMessage); 
-        setShowModal(true);
-    } finally {
-        setIsTranslating(false);
-    }
-};
-
-  const filteredBookmarks = manualSelectedLanguage 
-    ? bookmarks.filter(b => b.language === manualSelectedLanguage) 
-    : bookmarks; 
-  const filteredVocabulary = manualSelectedLanguage 
-    ? vocabulary.filter(v => v.language === manualSelectedLanguage) 
-    : vocabulary; 
-
-  // Helper function to escape CSV data
-  const escapeCsvCell = (cellData) => {
-    if (cellData === null || typeof cellData === 'undefined') return '';
-    let cellString = String(cellData);
-    if (cellString.includes(',') || cellString.includes('"') || cellString.includes('\n')) {
-      cellString = cellString.replace(/"/g, '""');
-      return `"${cellString}"`;
-    }
-    return cellString;
-  };
-
-  const exportVocabularyToCSV = () => {
-    if (filteredVocabulary.length === 0) {
-      setModalMessage("生字簿是空的，沒有內容可以匯出。");
-      setShowModal(true);
-      return;
-    }
-
-    const headers = ["詞條", "語言", "定義/意思 (原文)", "翻譯 (繁中)", "例句 (原文)", "文章來源URL"]; 
-    const csvRows = [headers.join(',')]; 
-
-    filteredVocabulary.forEach(v => {
-      const definitions = Array.isArray(v.definitions) ? v.definitions.join('; ') : (v.definitions || '');
-      const row = [
-        escapeCsvCell(v.word), 
-        escapeCsvCell(getLanguageName(v.language)),
-        escapeCsvCell(definitions), 
-        escapeCsvCell(v.translation_zh_TW),
-        escapeCsvCell(v.example_sentence),
-        escapeCsvCell(v.articleUrl)
-      ];
-      csvRows.push(row.join(','));
-    });
-
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' }); 
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `我的生字簿_${featureLanguageName || '所有語言'}_${new Date().toISOString().slice(0,10)}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setModalMessage("生字簿已成功匯出為 CSV 檔案！");
-    setShowModal(true);
-  };
-
-  const exportVerbConjugationToCSV = () => {
-    if (!verbConjugationData || verbConjugationData.error || !verbConjugationData.conjugations) {
-      setModalMessage("沒有動詞變化資料可供匯出，或資料有誤。");
-      setShowModal(true);
-      return;
-    }
-
-    const headers = ["語氣 (原文)", "語氣 (繁中)", "時態/語態 (原文)", "時態/語態 (繁中)", "人稱/編號 (原文)", "變化形 (原文)", "例句 (原文)", "例句翻譯 (繁中)"];
-    const csvRows = [headers.join(',')];
-
-    verbConjugationData.conjugations.forEach(mood => {
-      mood.tenses_or_voices.forEach(tense => {
-        tense.forms.forEach(form => {
-          const row = [
-            escapeCsvCell(mood.group_name_src_lang),
-            escapeCsvCell(mood.group_name_zh_TW),
-            escapeCsvCell(tense.sub_group_name_src_lang),
-            escapeCsvCell(tense.sub_group_name_zh_TW),
-            escapeCsvCell(form.person_descriptor_src_lang),
-            escapeCsvCell(form.conjugated_form_src_lang),
-            escapeCsvCell(tense.example_sentence_src_lang),
-            escapeCsvCell(tense.example_sentence_translation_zh_TW)
-          ];
-          csvRows.push(row.join(','));
-        });
-        if (tense.forms.length === 0 && tense.example_sentence_src_lang) {
-            const row = [
-                escapeCsvCell(mood.group_name_src_lang),
-                escapeCsvCell(mood.group_name_zh_TW),
-                escapeCsvCell(tense.sub_group_name_src_lang),
-                escapeCsvCell(tense.sub_group_name_zh_TW),
-                '', 
-                '', 
-                escapeCsvCell(tense.example_sentence_src_lang),
-                escapeCsvCell(tense.example_sentence_translation_zh_TW)
-            ];
-            csvRows.push(row.join(','));
+        .calendar-day.filtered-out {
+            background-color: #f8f9fa !important; /* bg-gray-50 approx */
+            opacity: 0.7;
         }
-      });
-    });
+        .calendar-day.filtered-out .assigned-person { visibility: hidden; }
+        .tab-button {
+            padding: 0.75rem 1.5rem; /* py-3 px-6 */
+            font-weight: 500; /* Tailwind: font-medium */
+            border-bottom: 2px solid transparent;
+            color: #4b5563; /* text-gray-600 */
+            transition: all 0.3s ease;
+        }
+        .tab-button:hover {
+            border-bottom-color: #3b82f6; /* hover:border-blue-500 */
+            color: #1d4ed8; /* hover:text-blue-700 */
+        }
+        .tab-button.active-tab {
+            border-bottom-color: #2563eb; /* border-blue-600 */
+            color: #1e3a8a; /* text-blue-800 */
+            font-weight: 700; /* font-bold */
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
 
-    const csvString = csvRows.join('\n');
-    const blob = new Blob([`\uFEFF${csvString}`], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    const verbName = verbConjugationData?.verb_infinitive_src_lang || '動詞變化'; 
-    const langName = verbConjugationData?.language_name_for_display_zh_TW || featureLanguageName; 
-    link.setAttribute("href", url);
-    link.setAttribute("download", `${verbName}_${langName}_變化表_${new Date().toISOString().slice(0,10)}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setModalMessage(`動詞「${verbName}」(${langName}) 的變化表已成功匯出為 CSV 檔案！`);
-    setShowModal(true);
-  };
-
-
-  if (!isAuthReady) {
-    return <div className="flex justify-center items-center h-screen text-2xl font-bold font-gaegu" style={{ color: '#58452D' }}>正在初始化應用程式...</div>;
-  }
-
-  const anyLoading = isLoading || isVocabLoading || isInsightLoading || isVerbConjLoading || isTranslating;
-  const numSelectedInsightItems = Object.values(selectedInsightItems).filter(Boolean).length; 
-
-  return (
-    <div className="min-h-screen p-4 md:p-8" style={{ backgroundColor: '#FDF6E3' }}>
-      <header className="mb-10 p-7 hand-drawn-border bg-orange-100"> 
-        <h1 className="text-4xl md:text-5xl font-bold text-center font-gaegu mb-2" style={{ color: '#8C6D46' }}>語言學習小幫手</h1> 
-        {userId && <p className="text-sm text-center mt-2" style={{color: '#A98C6A'}}>使用者 ID: {userId}</p>}
-      </header>
-
-      <section className="mb-8 p-7 hand-drawn-border bg-lime-50"> 
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-center"> {/* Increased gap to gap-6 */}
-          <input
-            ref={urlInputRef} 
-            type="url"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            placeholder="貼上文章網址開始學習..."
-            className="sm:col-span-6 p-4 hand-drawn-border bg-white text-lg focus:ring-2 focus:ring-orange-300 outline-none" 
-            disabled={anyLoading}
-          />
-          <select
-            value={manualSelectedLanguage}
-            onChange={(e) => {
-                setManualSelectedLanguage(e.target.value);
-                if (e.target.value && detectedLanguage && e.target.value !== detectedLanguage) {
-                    setModalMessage(`功能語言已手動設定為 ${getLanguageName(e.target.value)}。文章偵測語言為 ${getLanguageName(detectedLanguage)}。`);
-                    setShowModal(true);
-                } else if (!e.target.value && detectedLanguage) { 
-                     setModalMessage(`功能語言已切換回自動偵測 (${getLanguageName(detectedLanguage) || '未偵測到'})。`);
-                     setShowModal(true);
-                }
-            }}
-            className="sm:col-span-3 p-4 hand-drawn-border bg-white text-lg focus:ring-2 focus:ring-orange-300 outline-none" 
-            disabled={anyLoading}
-          >
-            <option value="">自動偵測語言</option>
-            {Object.entries(languageCodeToName).map(([code, name]) => (
-              <option key={code} value={code}>{name}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleFetchArticle}
-            disabled={anyLoading}
-            className="sm:col-span-2 px-7 py-4 hand-drawn-button bg-sky-200 hover:bg-sky-300 text-sky-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap" 
-          >
-            {isLoading ? '讀取中...' : '讀取文章'}
-          </button>
-          <button
-            onClick={handleChangeSource}
-            disabled={anyLoading}
-            className="sm:col-span-1 px-7 py-4 hand-drawn-button bg-stone-200 hover:bg-stone-300 text-stone-700 font-semibold text-lg whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed" 
-          >
-            換一篇
-          </button>
-        </div>
-      </section>
-
-      <div className="flex flex-col lg:flex-row gap-10"> 
-        <main className="lg:w-2/3 p-7 hand-drawn-border bg-white flex flex-col"> 
-          <h2 className="text-3xl font-bold mb-5 pb-4 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>文章內容</h2>  {/* Adjusted mb */}
-          
-          <div className="text-sm text-center my-5 space-y-1.5" style={{color: '#A98C6A'}}> {/* Adjusted my */}
-            {currentArticleUrl && detectedLanguage && (
-                <p>偵測到的文章語言：<span className="font-semibold">{getLanguageName(detectedLanguage) || '未知'}</span>
-                { (detectedLanguage === 'unknown' || !languageCodeToName[detectedLanguage]) && " (部分 AI 功能可能受限)"}
-                </p>
-            )}
-            {manualSelectedLanguage && (
-                <p>手動篩選/功能語言：<span className="font-semibold">{getLanguageName(manualSelectedLanguage)}</span></p>
-            )}
-          </div>
-
-          {isLoading && currentArticleUrl && <p className="p-4 text-orange-600">正在載入文章「{currentArticleUrl}」...</p>}
-          <div
-            ref={articleDisplayRef}
-            onMouseUp={handleTextSelection} 
-            onTouchEnd={handleTextSelection} 
-            className="prose-custom max-w-none h-96 overflow-y-auto p-5 border border-dashed border-stone-300 rounded-md bg-orange-50/50" 
-            style={{ userSelect: 'text', fontSize: '1.1rem' }} 
-          >
-            {getRenderedArticleText()}
-          </div>
-
-          {currentArticleUrl && !articleInsights && !isInsightLoading && articleText && featureLanguage && languageCodeToName[featureLanguage] && (
-            <button
-              onClick={handleFetchArticleInsights}
-              disabled={anyLoading}
-              className="mt-8 px-7 py-3.5 hand-drawn-button bg-teal-200 hover:bg-teal-300 text-teal-800 font-semibold text-lg self-center inline-flex items-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed" 
-            >
-              <SparklesIcon className="w-5 h-5" />
-              深度學習分析 ({featureLanguageName})
-            </button>
-          )}
-          {isInsightLoading && ( 
-            <div className="mt-8 p-5 text-center text-teal-700"> 
-              <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-teal-500 mx-auto mb-3"></div> 
-              AI 努力分析中 ({featureLanguageName})，請稍候...
-            </div>
-          )}
-          {articleInsights && (
-            <div className="mt-10 pt-8 border-t-2 border-dashed border-stone-300"> 
-              <div className="flex justify-between items-center mb-8"> 
-                <h3 className="text-2xl font-bold section-title-gaegu" style={{ color: '#8C6D46' }}>AI 學習洞察 ({featureLanguageName})</h3>
-                {(articleInsights.key_vocabulary?.length > 0 || articleInsights.useful_phrases?.length > 0) && (
-                    <button
-                        onClick={handleBulkAddSelectedInsightItems}
-                        disabled={anyLoading || numSelectedInsightItems === 0}
-                        className="hand-drawn-button bg-green-200 hover:bg-green-300 text-green-800 text-sm px-4 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
-                        title="批次加入已勾選的單字與片語"
-                    >
-                        <CheckCircleIcon className="w-4 h-4" /> 批次加入 ({numSelectedInsightItems})
-                    </button>
-                )}
-              </div>
-              
-              <div className="mb-10">  
-                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>重點單字</h4> 
-                {articleInsights.key_vocabulary && articleInsights.key_vocabulary.length > 0 ? (
-                  <ul className="space-y-6"> 
-                    {articleInsights.key_vocabulary.map((item, index) => (
-                      <li key={`vocab-${item.word}-${index}`} className="p-5 hand-drawn-border bg-amber-50/70 text-sm">  
-                        <div className="flex justify-between items-start mb-1.5"> {/* Adjusted mb */}
-                            <div className="flex items-center">
-                                <input 
-                                    type="checkbox"
-                                    id={`insight-vocab-${index}`}
-                                    checked={!!selectedInsightItems[item.word]} 
-                                    onChange={() => handleToggleInsightItemSelection(item.word)} 
-                                    className="mr-3.5 h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer" 
-                                    disabled={anyLoading}
-                                />
-                                <label htmlFor={`insight-vocab-${index}`} className="cursor-pointer">
-                                    <strong className="text-lg text-amber-700 block mb-2">{item.word}</strong>  
-                                </label>
-                            </div>
-                          <button 
-                            onClick={() => addVocabEntry(item.word, item.definition_en, item.translation_zh_TW, item.example_sentence_from_article)}
-                            disabled={anyLoading || !featureLanguage || !languageCodeToName[featureLanguage]}
-                            className="hand-drawn-button bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-2 inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed" 
-                            title="單獨加入此單字"
-                          >
-                            <PlusCircleIcon className="w-4 h-4"/> 加入
-                          </button>
-                        </div>
-                        <p className="mt-2 mb-2"><span className="font-semibold text-stone-500">定義 ({featureLanguageName || '原文'}):</span> {item.definition_en}</p> {/* Adjusted mt, mb */}
-                        <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {item.translation_zh_TW}</p> {/* Adjusted mb */}
-                        <p className="mt-2.5 italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p>  
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="text-stone-500 pt-3">AI 未找到特別的重點單字。</p>} 
-              </div>
-
-              <div className="mb-10"> 
-                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>實用片語</h4> 
-                {articleInsights.useful_phrases && articleInsights.useful_phrases.length > 0 ? (
-                  <ul className="space-y-6"> 
-                    {articleInsights.useful_phrases.map((item, index) => (
-                      <li key={`phrase-${item.phrase}-${index}`} className="p-5 hand-drawn-border bg-sky-50/70 text-sm"> 
-                         <div className="flex justify-between items-start mb-1.5"> {/* Adjusted mb */}
-                            <div className="flex items-center">
-                                <input 
-                                    type="checkbox"
-                                    id={`insight-phrase-${index}`}
-                                    checked={!!selectedInsightItems[item.phrase]} 
-                                    onChange={() => handleToggleInsightItemSelection(item.phrase)} 
-                                    className="mr-3.5 h-5 w-5 rounded border-gray-300 text-green-600 focus:ring-green-500 cursor-pointer" 
-                                    disabled={anyLoading}
-                                />
-                                <label htmlFor={`insight-phrase-${index}`} className="cursor-pointer">
-                                    <strong className="text-lg text-sky-700 block mb-2">{item.phrase}</strong> 
-                                </label>
-                            </div>
-                          <button 
-                            onClick={() => addVocabEntry(item.phrase, item.meaning_en, item.translation_zh_TW, item.example_sentence_from_article)}
-                            disabled={anyLoading || !featureLanguage || !languageCodeToName[featureLanguage]}
-                            className="hand-drawn-button bg-green-100 hover:bg-green-200 text-green-700 text-xs px-3 py-2 inline-flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed" 
-                            title="單獨加入此片語"
-                          >
-                            <PlusCircleIcon className="w-4 h-4"/> 加入
-                          </button>
-                        </div>
-                        <p className="mb-2"><span className="font-semibold text-stone-500">意思 ({featureLanguageName || '原文'}):</span> {item.meaning_en}</p> {/* Adjusted mb */}
-                        <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {item.translation_zh_TW}</p> {/* Adjusted mb */}
-                        <p className="mt-2.5 italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p> 
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="text-stone-500 pt-3">AI 未找到特別的實用片語。</p>} 
-              </div>
-
-              <div>
-                <h4 className="text-xl font-semibold mb-5 pb-1.5 section-title-gaegu" style={{ color: '#A0522D', borderBottom: '1px solid #D2B48C' }}>文法結構亮點</h4> 
-                {articleInsights.grammar_highlights && articleInsights.grammar_highlights.length > 0 ? (
-                  <ul className="space-y-6"> 
-                    {articleInsights.grammar_highlights.map((item, index) => (
-                      <li key={`grammar-${item.grammar_point_name_zh_TW.replace(/\s/g, '_')}-${index}`} className="p-5 hand-drawn-border bg-purple-50/70 text-sm"> 
-                        <strong className="text-lg text-purple-700 block mb-2">{item.grammar_point_name_zh_TW}</strong> 
-                        <p className="mb-2"><span className="font-semibold text-stone-500">解釋 (繁中):</span> {item.explanation_zh_TW}</p> 
-                        <p className="italic text-xs text-stone-600"><span className="font-semibold text-stone-500 not-italic">文內例句 ({featureLanguageName || '原文'}):</span> "{item.example_sentence_from_article}"</p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="text-stone-500 pt-3">AI 未找到特別的文法亮點。</p>} 
-              </div>
-            </div>
-          )}
-        </main>
-
-        <aside className="lg:w-1/3 flex flex-col gap-10"> 
-          <section className="p-7 hand-drawn-border bg-amber-50"> 
-            <h3 className="text-2xl font-bold mb-6 pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>學習工具</h3> 
-            {currentArticleUrl && articleText && (
-              <button
-                onClick={addBookmark}
-                disabled={anyLoading || !currentArticleUrl}
-                className="w-full mb-5 px-5 py-3.5 hand-drawn-button bg-green-200 hover:bg-green-300 text-green-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed" 
-              >
-                收藏這篇文章
-              </button>
-            )}
-            {selectedText && articleText && featureLanguage && languageCodeToName[featureLanguage] && (
-              <>
-                <button
-                  onClick={() => addVocabEntry(selectedText)} 
-                  disabled={anyLoading || !selectedText}
-                  className="w-full mb-5 px-5 py-3.5 hand-drawn-button bg-purple-200 hover:bg-purple-300 text-purple-800 font-semibold text-lg disabled:opacity-60 disabled:cursor-not-allowed" 
-                >
-                  {isVocabLoading && selectedText === (document.activeElement?.dataset?.word || '') ? '查詢中...' : `加入生字簿 (${featureLanguageName}): "${selectedText.substring(0,10)}..."`}
-                </button>
-                <button
-                  onClick={handleTranslateSelectedText}
-                  disabled={anyLoading || !selectedText}
-                  className="w-full px-5 py-3.5 hand-drawn-button bg-blue-200 hover:bg-blue-300 text-blue-800 font-semibold text-lg inline-flex items-center justify-center gap-2.5 disabled:opacity-60 disabled:cursor-not-allowed" 
-                >
-                  <GlobeAltIcon className="w-5 h-5" />
-                  {isTranslating ? '翻譯中...' : `翻譯選取文字 (至繁中)`}
-                </button>
-              </>
-            )}
-            {!selectedText && articleText && (
-              <p className="text-sm text-stone-500 mt-4">在文章中選取或點擊文字以加入生字簿或翻譯。</p> 
-            )}
-             {articleText && (!featureLanguage || !languageCodeToName[featureLanguage]) && (
-               <p className="text-sm text-orange-600 mt-4">請確認已偵測到或手動選擇有效語言以使用工具。</p> 
-            )}
-            {!articleText && (
-              <p className="text-sm text-stone-500 mt-4">請先讀取一篇文章以使用工具。</p> 
-            )}
-          </section>
-          
-          <section className="p-7 hand-drawn-border bg-indigo-50"> 
-            <div className="flex justify-between items-center mb-6"> 
-                <h3 className="text-2xl font-bold pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>動詞變化查詢 ({featureLanguageName || '請選語言'})</h3> 
-                {verbConjugationData && !verbConjugationData.error && verbConjugationData.conjugations && (
-                    <button
-                        onClick={exportVerbConjugationToCSV}
-                        disabled={anyLoading}
-                        className="hand-drawn-button bg-indigo-200 hover:bg-indigo-300 text-indigo-800 text-sm px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
-                        title="匯出動詞變化表 (CSV)"
-                    >
-                        <ArrowDownTrayIcon className="w-4 h-4" /> 匯出
-                    </button>
-                )}
-            </div>
-            {(!featureLanguage || !languageCodeToName[featureLanguage]) && ( 
-                 <p className="text-sm text-stone-500 mb-4">請先成功載入文章並偵測語言，或手動選擇一個支援的語言。</p> 
-            )}
-            {featureLanguage && languageCodeToName[featureLanguage] && ( 
-                <>
-                    <div className="flex flex-col sm:flex-row gap-3 mb-5">  
-                        <input
-                            type="text"
-                            value={verbToLookup}
-                            onChange={(e) => setVerbToLookup(e.target.value)}
-                            placeholder={`輸入${featureLanguageName}動詞`}
-                            className="flex-grow p-3 hand-drawn-border bg-white text-base focus:ring-1 focus:ring-indigo-300 outline-none" 
-                            disabled={anyLoading}
-                        />
-                        <button
-                            onClick={handleFetchVerbConjugation}
-                            disabled={anyLoading || !verbToLookup.trim()}
-                            className="p-3 hand-drawn-button bg-indigo-200 hover:bg-indigo-300 text-indigo-800 disabled:opacity-60 disabled:cursor-not-allowed inline-flex items-center justify-center aspect-square" 
-                            title="查詢動詞變化"
-                        >
-                            {isVerbConjLoading 
-                                ? <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-indigo-700"></div>
-                                : <MagnifyingGlassIcon className="w-5 h-5"/>
-                            }
-                        </button>
-                    </div>
-                    {isVerbConjLoading && <p className="text-sm text-indigo-600">正在查詢動詞「{verbToLookup}」的變化...</p>}
-                    {verbConjugationData && (
-                        <div className="mt-5 max-h-96 overflow-y-auto prose-custom text-sm p-5 bg-white border border-dashed border-indigo-200 rounded-md">  
-                            {verbConjugationData.error ? ( 
-                                <p className="text-red-600">查詢「{verbConjugationData.verb_infinitive_src_lang || verbToLookup}」({verbConjugationData.language_name_for_display_zh_TW})時發生錯誤：{verbConjugationData.error}</p>
-                            ) : ( 
-                                <>
-                                    <div className="flex justify-between items-center mb-4"> 
-                                        <h4 className="text-lg font-semibold" style={{color: '#4A55A2'}}>
-                                            {verbConjugationData.verb_infinitive_src_lang}
-                                            <span className="text-sm font-normal"> ({verbConjugationData.language_name_for_display_zh_TW})</span>
-                                        </h4>
-                                        <div className="space-x-2.5"> 
-                                            <button onClick={() => setAllVerbDetailsOpenState(true)} className="text-xs hand-drawn-button px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700">全部展開</button> 
-                                            <button onClick={() => setAllVerbDetailsOpenState(false)} className="text-xs hand-drawn-button px-2.5 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-700">全部收合</button> 
-                                        </div>
-                                    </div>
-                                    <p className="mb-1"><strong>規則性：</strong>{verbConjugationData.regularity_zh_TW}</p> 
-                                    {verbConjugationData.verb_type_zh_TW && <p className="mt-0.5 mb-2"><strong>類型：</strong>{verbConjugationData.verb_type_zh_TW}</p>} 
-
-                                    {verbConjugationData.conjugations?.map((mood, moodIndex) => (
-                                        <details 
-                                            key={`mood-${moodIndex}`} 
-                                            className="mb-4" 
-                                            open={verbDetailsOpenState[`mood-${moodIndex}`]} 
-                                        >
-                                            <summary 
-                                                className={`text-md font-semibold verb-mood-summary`}
-                                                onClick={(e) => { 
-                                                    e.preventDefault(); 
-                                                    toggleVerbDetailOpenState(`mood-${moodIndex}`); 
-                                                }}
-                                            > 
-                                                <span>
-                                                    {mood.group_name_zh_TW}
-                                                    {mood.group_name_src_lang && ` (${mood.group_name_src_lang})`}
-                                                </span>
-                                                {verbDetailsOpenState[`mood-${moodIndex}`] 
-                                                    ? <ChevronDownIcon className="w-4 h-4 inline-block ml-1 transform rotate-0" /> 
-                                                    : <ChevronRightIcon className="w-4 h-4 inline-block ml-1 transform" />
-                                                }
-                                            </summary>
-                                            <div className="pl-2.5 pt-1.5 pb-1.5"> 
-                                                {mood.tenses_or_voices?.map((tense, tenseIndex) => (
-                                                    <details 
-                                                        key={`mood-${moodIndex}-tense-${tenseIndex}`} 
-                                                        className="mt-2 mb-2.5"  
-                                                        open={verbDetailsOpenState[`mood-${moodIndex}-tense-${tenseIndex}`]} 
-                                                    >
-                                                        <summary 
-                                                            className={`text-base font-medium verb-tense-summary`}
-                                                            onClick={(e) => { 
-                                                                e.preventDefault(); 
-                                                                toggleVerbDetailOpenState(`mood-${moodIndex}-tense-${tenseIndex}`); 
-                                                            }}
-                                                        > 
-                                                            <span>
-                                                                {tense.sub_group_name_zh_TW}
-                                                                {tense.sub_group_name_src_lang && ` (${tense.sub_group_name_src_lang})`}
-                                                            </span>
-                                                            {verbDetailsOpenState[`mood-${moodIndex}-tense-${tenseIndex}`] 
-                                                                ? <ChevronDownIcon /> 
-                                                                : <ChevronRightIcon />
-                                                            }
-                                                        </summary>
-                                                        <div className="pl-3.5 pt-2.5 pb-1.5"> 
-                                                            <ul className="list-none space-y-2.5 text-xs verb-forms-list"> 
-                                                                {tense.forms?.map((form, formIndex) => (
-                                                                    <li key={formIndex} className="flex"> 
-                                                                        <span className="font-semibold w-2/5 pr-2.5 text-right text-indigo-700">{form.person_descriptor_src_lang}:</span> 
-                                                                        <span className="w-3/5 text-left">{form.conjugated_form_src_lang}</span> 
-                                                                    </li>
-                                                                ))}
-                                                            </ul>
-                                                            {tense.example_sentence_src_lang && (
-                                                                <div className="verb-example-sentence"> 
-                                                                    <p><strong>例句 ({verbConjugationData.language_name_for_display_zh_TW}):</strong> {tense.example_sentence_src_lang}</p>
-                                                                    {tense.example_sentence_translation_zh_TW && <p className="mt-1.5"><strong>翻譯 (繁中):</strong> {tense.example_sentence_translation_zh_TW}</p>} 
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </details>
-                                                ))}
-                                            </div>
-                                        </details>
-                                    ))}
-                                    {verbConjugationData.notes_zh_TW && (
-                                        <div className="mt-4 pt-4 border-t border-dashed border-indigo-200"> 
-                                            <p className="text-sm font-semibold" style={{color: '#4A55A2'}}>備註：</p>
-                                            <p className="text-xs mt-1.5">{verbConjugationData.notes_zh_TW}</p> 
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    )}
-                </>
-            )}
-          </section>
-
-
-          <section className="p-7 hand-drawn-border bg-sky-50"> 
-            <h3 className="text-2xl font-bold mb-6 pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>我的收藏 {manualSelectedLanguage ? `(${getLanguageName(manualSelectedLanguage)})` : '(所有語言)'}</h3> 
-            <div className="space-y-6 max-h-60 overflow-y-auto pr-2.5"> 
-              {filteredBookmarks.length > 0 ? (
-                filteredBookmarks.map((b) => (
-                  <div key={b.id} className="p-5 hand-drawn-border bg-white group relative"> 
-                    <button 
-                        onClick={() => loadBookmarkedArticle(b.url, b.language)} 
-                        className="text-left w-full"
-                        title={`載入: ${b.title || b.url}`}
-                    >
-                        <strong className="block text-xl text-sky-700 truncate mb-2">{b.title || '未命名收藏'}</strong> 
-                        <span className="text-xs text-stone-500 block truncate">{b.url}</span>
-                        <span className="text-xs text-sky-600 block mt-1">({getLanguageName(b.language || b.detectedLanguage)})</span> 
-                    </button>
-                    <button 
-                        onClick={() => removeBookmark(b.id)}
-                        disabled={anyLoading}
-                        className="absolute top-2.5 right-2.5 text-red-500 hover:text-red-700 opacity-50 group-hover:opacity-100 transition-opacity p-1.5 hand-drawn-button bg-red-100 hover:bg-red-200 border-red-300 disabled:opacity-50 disabled:cursor-not-allowed" 
-                        aria-label="移除收藏"
-                    >
-                        <TrashIcon className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))
-              ) : ( 
-                <p className="text-stone-500 pt-3">{manualSelectedLanguage ? `沒有 ${getLanguageName(manualSelectedLanguage)} 的收藏。` : '還沒有收藏的文章喔。'}</p> 
-              )}
-            </div>
-          </section>
-
-          <section className="p-7 hand-drawn-border bg-purple-50"> 
-            <div className="flex justify-between items-center mb-6"> 
-                <h3 className="text-2xl font-bold pb-2.5 section-title-gaegu" style={{ color: '#8C6D46', borderBottom: '2px dashed #A98C6A' }}>我的生字簿 {manualSelectedLanguage ? `(${getLanguageName(manualSelectedLanguage)})` : '(所有語言)'}</h3> 
-                {filteredVocabulary.length > 0 && (
-                    <button
-                        onClick={exportVocabularyToCSV}
-                        disabled={anyLoading}
-                        className="hand-drawn-button bg-purple-200 hover:bg-purple-300 text-purple-800 text-sm px-3.5 py-2 inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed" 
-                        title="匯出單字本 (CSV)"
-                    >
-                        <ArrowDownTrayIcon className="w-4 h-4" /> 匯出
-                    </button>
-                )}
-            </div>
-            {isVocabLoading && selectedText && <p className="text-sm text-purple-600">正在為「{selectedText}」查詢生字資訊...</p>}
-            <div className="space-y-6 max-h-80 overflow-y-auto pr-2.5"> 
-            {filteredVocabulary.length > 0 ? (
-              filteredVocabulary.map((v) => (
-                <div key={v.id} className="p-5 hand-drawn-border bg-white group relative text-stone-700"> 
-                  <div className="flex justify-between items-start mb-3"> 
-                    <strong className="text-2xl text-purple-700 break-all">{v.word} <span className="text-base text-purple-500">({getLanguageName(v.language)})</span></strong>
-                    <button 
-                      onClick={() => removeVocabEntry(v.id)}
-                      disabled={anyLoading}
-                      className="text-red-500 hover:text-red-700 opacity-50 group-hover:opacity-100 transition-opacity p-1.5 hand-drawn-button bg-red-100 hover:bg-red-200 border-red-300 disabled:opacity-50 disabled:cursor-not-allowed" 
-                      aria-label="移除生字"
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
-                  </div>
-                  {v.translation_zh_TW && <p className="mb-2"><span className="font-semibold text-stone-500">翻譯 (繁中):</span> {v.translation_zh_TW}</p>} 
-                  {v.definitions && Array.isArray(v.definitions) && v.definitions.length > 0 && (
-                    <div className="mb-2"> 
-                      <p className="font-semibold text-stone-500 mb-1.5">定義/意思 ({getLanguageName(v.language)}):</p> {/* Adjusted mb */}
-                      <ul className="list-disc list-inside pl-3.5 text-sm space-y-1.5"> 
-                        {v.definitions.map((def, i) => <li key={`${v.id}-def-${i}`}>{def}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                  {v.example_sentence && <p className="text-sm mb-1.5"><span className="font-semibold text-stone-500">例句 ({getLanguageName(v.language)}):</span> <em className="italic">"{v.example_sentence}"</em></p>} 
-                  {v.articleUrl && v.articleUrl !== 'general' && <p className="text-xs text-stone-400 mt-3 truncate" title={`來源文章: ${v.articleUrl}`}>來源: {v.articleUrl.length > 30 ? v.articleUrl.substring(0,27) + '...' : v.articleUrl}</p>} 
-                </div>
-              ))
-            ) : ( 
-              <p className="text-stone-500 pt-3">{manualSelectedLanguage ? `沒有 ${getLanguageName(manualSelectedLanguage)} 的生字。` : '生字簿是空的，快去選字加入吧！'}</p> 
-            )}
-            </div>
-          </section>
-        </aside>
-      </div>
-
-      {anyLoading && (
-        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 backdrop-blur-sm">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-orange-400"></div>
-        </div>
-      )}
-      
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-          <div className="p-8 hand-drawn-border bg-amber-100 max-w-md w-full">
-            <h4 className="text-2xl font-bold mb-6 font-gaegu" style={{color: '#8C6D46'}}>通知</h4> 
-            <p className="text-lg text-stone-700 mb-8 whitespace-pre-wrap">{modalMessage}</p> 
-            <button
-              onClick={() => {setShowModal(false); setModalMessage(''); if(error && modalMessage.toLowerCase().includes("失敗")) setError('');}} 
-              className="w-full px-5 py-4 hand-drawn-button bg-orange-300 hover:bg-orange-400 text-orange-800 font-semibold text-lg" 
-            >
-              我知道了
-            </button>
-          </div>
-        </div>
-      )}
-      {showTranslationModal && translationResult && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-          <div className="p-8 hand-drawn-border bg-blue-100 max-w-lg w-full prose-custom">
-            <h4 className="text-2xl font-bold mb-6 font-gaegu" style={{color: '#3B82F6'}}>翻譯結果</h4> 
-            <div className="mb-6"> 
-                <p className="font-semibold text-stone-600">原文 ({getLanguageName(translationResult.source_language_code_detected || featureLanguage)}):</p>
-                <p className="p-3.5 bg-white border border-dashed border-blue-300 rounded-md text-stone-700 max-h-32 overflow-y-auto mt-2">{translationResult.original_text}</p> 
-            </div>
-            <div className="mb-8"> 
-                <p className="font-semibold text-stone-600">翻譯 (繁體中文):</p>
-                <p className="p-3.5 bg-white border border-dashed border-blue-300 rounded-md text-blue-700 font-medium max-h-32 overflow-y-auto mt-2">{translationResult.translated_text_zh_TW}</p> 
-            </div>
-            <button
-              onClick={() => {setShowTranslationModal(false); setTranslationResult(null);}} 
-              className="w-full px-5 py-4 hand-drawn-button bg-blue-300 hover:bg-blue-400 text-blue-800 font-semibold text-lg" 
-            >
-              關閉
-            </button>
-          </div>
-        </div>
-      )}
-      {error && !showModal && !showTranslationModal && ( 
-         <div className="fixed bottom-5 right-5 p-5 hand-drawn-border bg-red-200 text-red-800 max-w-md z-40"> 
-           <p className="font-bold text-lg font-gaegu mb-1">哎呀，出錯了：</p> 
-           <p className="text-md whitespace-pre-wrap mt-1.5">{error}</p> 
-           <button onClick={() => setError('')} className="mt-3 text-sm underline text-red-700">關閉</button> 
-       </div>
-      )}
-      <footer className="mt-20 text-center text-sm text-stone-500"> 
-        <p className="font-gaegu mb-1">語言學習小幫手 &copy; 2024-2025</p> 
-        <p className="mt-2">網頁內容提取與 AI 功能依賴外部服務，可能並非所有情況都能成功處理喔！</p> 
-      </footer>
+    <div id="customAlert" class="custom-alert">
+        <span id="customAlertMessage"></span>
     </div>
-  );
-}
 
-export default App;
+    <main class="container mx-auto p-4">
+        <header class="mb-6 p-4 bg-white shadow-md rounded-lg">
+            <div class="flex justify-between items-center">
+                <h1 id="mainTitle" class="text-3xl font-bold text-sky-700">SHIFT TOOL</h1>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <aside class="md:col-span-1 bg-white p-6 shadow-lg rounded-lg">
+                <div id="primaryShiftLeftPanel">
+                    <h2 class="text-lg font-semibold mb-3 text-sky-600">主要班表管理</h2>
+                    <form onsubmit="event.preventDefault(); StaffManager.processStaffNames();">
+                        <div class="mb-4">
+                            <label for="staffNameInput" class="block text-sm font-medium text-slate-700 mb-1">手動新增/管理主要班表人員 (每行一人)</label>
+                            <textarea id="staffNameInput" rows="3" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500" placeholder="例如：&#x0a;劉學翰&#x0a;廖志龍&#x0a;袁國維"></textarea>
+                            <button type="submit" class="mt-2 w-full bg-sky-600 text-white py-2 px-4 rounded-md hover:bg-sky-700 transition-colors">處理主要班表名單</button>
+                        </div>
+                    </form>
+                    <hr class="my-4">
+                    <form onsubmit="event.preventDefault(); ScheduleParser.triggerImportScheduleFromPastedText();">
+                        <div class="mb-4">
+                            <label for="fullSchedulePasteArea" class="block text-sm font-medium text-slate-700 mb-1">貼上主要班表文字</label>
+                            <textarea id="fullSchedulePasteArea" rows="5" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500" placeholder="可貼上包含 'XXX年Y月' 及 '姓名' 與日期標頭的純文字班表。"></textarea>
+                            <button type="submit" class="mt-2 w-full bg-orange-500 text-white py-2 px-4 rounded-md hover:bg-orange-600 transition-colors">匯入貼上之文字 (主要班表)</button>
+                        </div>
+                    </form>
+                    <hr class="my-4">
+                    <section aria-labelledby="automation-title">
+                        <h3 id="automation-title" class="text-md font-semibold mb-2 text-slate-700 sr-only">主要班表自動化功能區塊</h3>
+                        <div class="mb-4">
+                             <label class="block text-sm font-medium text-slate-700 mb-1">主要班表自動化功能</label>
+                            <button type="button" onclick="AutoScheduler.triggerAutoSchedule()" class="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 transition-colors mb-2">自動產生初步班表 (手動選起始)</button>
+                            <button type="button" onclick="AutoScheduler.carryOverToNextMonth()" class="w-full bg-teal-600 text-white py-2 px-4 rounded-md hover:bg-teal-700 transition-colors">自動預排次月班表 (接續本月)</button>
+                        </div>
+                    </section>
+                    <h3 class="text-md font-semibold mb-2 text-slate-700">主要班表目前人員 (本月):</h3>
+                    <div id="staffList" class="max-h-40 overflow-y-auto p-1 border border-slate-200 rounded-md bg-slate-50">
+                        <p class="text-sm text-slate-500">尚未新增任何主要班表人員。</p>
+                    </div>
+                </div>
+                 <p class="text-xs text-slate-500 mt-2">注意：人員名單與班表資料將儲存在您的瀏覽器中。</p>
+            </aside>
+
+            <section class="md:col-span-2 bg-white p-6 shadow-lg rounded-lg" aria-labelledby="calendar-section-title">
+                <h2 id="calendar-section-title" class="sr-only">班表日曆與控制區域</h2>
+                <nav class="mb-4 border-b border-gray-200" aria-label="Tabs">
+                    <div class="-mb-px flex space-x-4 sm:space-x-8">
+                        <button id="primaryScheduleTabButton" type="button" class="tab-button active-tab" role="tab" aria-selected="true" aria-controls="primary-schedule-panel">主要班表</button>
+                        <button id="secondaryScheduleTabButton" type="button" class="tab-button" role="tab" aria-selected="false" aria-controls="secondary-schedule-panel">第二班表 (週末)</button>
+                    </div>
+                </nav>
+                
+                <div class="flex justify-between items-center mb-4">
+                    <button type="button" onclick="Calendar.changeMonth(-1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="上個月">&lt; 上個月</button>
+                    <h2 id="monthYearDisplay" class="text-xl font-bold text-sky-700" aria-live="polite"></h2>
+                    <button type="button" onclick="Calendar.changeMonth(1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="下個月">下個月 &gt;</button>
+                </div>
+
+                <div id="primary-schedule-panel" role="tabpanel" aria-labelledby="primaryScheduleTabButton">
+                    </div>
+                <div id="secondary-schedule-panel" role="tabpanel" aria-labelledby="secondaryScheduleTabButton" class="hidden">
+                     </div>
+
+
+                <div id="secondaryScheduleControlsAboveCalendar" class="mb-4 hidden">
+                    <h3 class="text-md font-semibold mb-2 text-slate-700">第二班表設定 (僅週末)</h3>
+                    <form onsubmit="event.preventDefault();"> <div class="mb-4">
+                            <label for="secondaryStartGroupSelect" class="block text-sm font-medium text-slate-700 mb-1">本月起始組別 (週末):</label>
+                            <select id="secondaryStartGroupSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500">
+                                </select>
+                        </div>
+                    </form>
+                    <button id="toggleSecondaryStaffInfoButton" type="button" class="mb-3 w-full bg-indigo-500 text-white py-2 px-4 rounded-md hover:bg-indigo-600 transition-colors">顯示組別成員</button>
+                    <div id="secondaryStaffInfoDiv" class="text-sm text-slate-600 space-y-1 p-3 bg-slate-50 rounded-md border border-slate-200 hidden">
+                        </div>
+                     <p class="text-xs text-slate-500 mt-2">第二班表為自動固定輪替，僅於週末排班。可選擇本月起始組別。</p>
+                     <div class="mt-4 text-right">
+                        <button id="exportSecondaryScheduleButton" type="button" onclick="Exporter.exportSecondaryToICS()" class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">匯出第二班表至 Google 日曆 (.ics)</button>
+                    </div>
+                </div>
+
+                <div id="calendarGrid" class="grid grid-cols-7 gap-1" aria-labelledby="monthYearDisplay"></div>
+
+                <div id="primaryScheduleControls" class="mt-6">
+                    <form onsubmit="event.preventDefault();"> <div class="mb-4">
+                            <label for="staffFilterSelect" class="block text-sm font-medium text-slate-700 mb-1">篩選顯示主要班表人員:</label>
+                            <select id="staffFilterSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500">
+                                </select>
+                        </div>
+                    </form>
+                    <form onsubmit="event.preventDefault();"> <div>
+                             <label for="scheduleNotes" class="block text-sm font-medium text-slate-700 mb-1">班表備註 (本月 - 主要班表):</label>
+                             <textarea id="scheduleNotes" rows="3" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500" placeholder="例如：5月平日最後名賢、假日靖興"></textarea>
+                             <button id="saveNotesButton" type="button" class="mt-2 bg-emerald-500 text-white py-2 px-4 rounded-md hover:bg-emerald-600 transition-colors">儲存備註</button> </div>
+                    </form>
+                    <div class="mt-6 text-right">
+                        <button id="exportPrimaryScheduleButton" type="button" onclick="Exporter.exportToICS()" class="bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors">匯出主要班表至 Google 日曆 (.ics)</button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <div id="assignmentModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="assignmentModalTitle">
+        <div class="modal-content">
+            <button class="close-button" onclick="UI.closeAssignmentModal()" aria-label="關閉">&times;</button>
+            <h3 id="assignmentModalTitle" class="text-lg font-semibold mb-3">指派主要班表值班人員</h3>
+            <p id="noStaffMessage" class="text-slate-600 hidden">請先在左側「人員管理」區塊新增本月份的主要班表人員名單。</p>
+            <div id="modalStaffList" class="space-y-1 max-h-60 overflow-y-auto staff-list-modal">
+                </div>
+            <button id="clearAssignmentButton" type="button" class="mt-4 w-full bg-red-500 text-white py-2 px-3 rounded-md hover:bg-red-600 transition-colors hidden">清除此日主要班表值班</button>
+        </div>
+    </div>
+
+    <div id="autoScheduleConfirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="autoScheduleConfirmModalTitle">
+        <div class="modal-content max-h-[80vh] overflow-y-auto">
+            <button class="close-button" onclick="UI.closeAutoScheduleConfirmModal()" aria-label="關閉">&times;</button>
+            <h3 id="autoScheduleConfirmModalTitle" class="text-lg font-semibold mb-3 text-sky-700">確認自動排主要班表</h3>
+            <p id="autoScheduleConfirmMessage" class="text-slate-600 mb-4"></p>
+            <form id="autoScheduleForm" onsubmit="event.preventDefault(); AutoScheduler.proceedWithAutoSchedule(); UI.closeAutoScheduleConfirmModal();">
+                <div class="mb-3">
+                    <label for="startMonThuSelect" class="block text-sm font-medium text-slate-700 mb-1">週一至週四起始人員:</label>
+                    <select id="startMonThuSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                </div>
+                <div class="mb-3">
+                    <label for="startFriSelect" class="block text-sm font-medium text-slate-700 mb-1">週五起始人員:</label>
+                    <select id="startFriSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                </div>
+                <div class="mb-4">
+                    <label for="startWeekendSelect" class="block text-sm font-medium text-slate-700 mb-1">週末起始人員:</label>
+                    <select id="startWeekendSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                </div>
+                <div class="flex justify-end space-x-3 mt-4">
+                    <button type="button" onclick="UI.closeAutoScheduleConfirmModal()" class="bg-slate-300 hover:bg-slate-400 text-slate-800 py-2 px-4 rounded-md transition-colors">取消</button>
+                    <button id="confirmAutoScheduleButton" type="submit" class="bg-sky-600 text-white py-2 px-4 rounded-md hover:bg-sky-700 transition-colors">確定執行</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    // --- 全域狀態與設定 ---
+    let AppState = {
+        currentYear: new Date().getFullYear(),
+        currentMonth: new Date().getMonth(), // 0-indexed
+        activeView: 'primary', // 'primary' or 'secondary'
+        defaultStaffNames: ["劉學翰", "廖志龍", "袁國維", "張靖興", "曾名賢"], // 預設主要班表人員名單
+        staffNames: [], // 主要班表人員名單 (本月)
+        shifts: {}, // 主要班表資料: { "YYYY-MM-DD": "StaffName" }
+        notes: '', // 主要班表備註 (本月)
+        staffColors: {}, // 主要班表人員顏色: { "StaffName": { background: '#...', text: '#...' } }
+        selectedDateForAssignment: null, // 用於主要班表指派彈窗
+        selectedStaffForFilter: "ALL", // 用於主要班表篩選
+        
+        secondarySchedule: { // 第二班表 (週末) 相關設定
+            staff: ["劉學翰", "廖志龍", "張靖興"], // 固定參與第二班表的人員
+            groupDefinitions: [ // 組別定義
+                { name: "A", members: ["劉學翰", "廖志龍"], color: { background: '#FFEBEE', text: '#C62828' } }, 
+                { name: "B", members: ["張靖興", "劉學翰"], color: { background: '#E3F2FD', text: '#1565C0' } },
+                { name: "C", members: ["廖志龍", "張靖興"], color: { background: '#E8F5E9', text: '#2E7D32' } }
+            ],
+            shifts: {}, // 第二班表資料: { "YYYY-MM-DD": "GroupName" }
+            startGroupForMonth: {}, // 每月起始組別: { "YYYY-MM": "GroupName" or "default" }
+            epochDate: new Date(2024, 0, 1), // 計算週末輪替的基準日期 (2024年1月1日)
+            isStaffInfoVisible: false // 是否顯示組別成員資訊
+        }
+    };
+
+    // 預定義顏色供主要班表人員使用
+    const PREDEFINED_COLORS = [
+        { background: '#FFADAD', text: '#A50000' }, { background: '#FFD6A5', text: '#A54700' },
+        { background: '#FDFFB6', text: '#6F7300' }, { background: '#CAFFBF', text: '#1E5E2F' },
+        { background: '#9BF6FF', text: '#005F6B' }, { background: '#A0C4FF', text: '#0D3C8C' },
+        { background: '#BDB2FF', text: '#3A1E93' }, { background: '#FFC6FF', text: '#7A006F' }
+    ];
+
+    // UI 元素快取
+    const UIElements = {
+        mainTitle: null, primaryShiftLeftPanel: null,
+        monthYearDisplay: null, calendarGrid: null, staffNameInput: null,
+        fullSchedulePasteArea: null, staffListDiv: null, 
+        assignmentModal: null, modalStaffList: null, clearAssignmentButton: null,
+        noStaffMessage: null, scheduleNotesTextarea: null, customAlertBox: null,
+        customAlertMessageBox: null, saveNotesButton: null,
+        staffFilterSelect: null, 
+        autoScheduleConfirmModal: null, autoScheduleConfirmMessage: null, confirmAutoScheduleButton: null,
+        startMonThuSelect: null, startFriSelect: null, startWeekendSelect: null,
+        primaryScheduleTabButton: null, secondaryScheduleTabButton: null,
+        primaryScheduleControls: null, 
+        secondaryScheduleControlsAboveCalendar: null, 
+        secondaryStaffInfoDiv: null, secondaryStartGroupSelect: null,
+        toggleSecondaryStaffInfoButton: null,
+        exportPrimaryScheduleButton: null, 
+        exportSecondaryScheduleButton: null,
+        primarySchedulePanel: null, 
+        secondarySchedulePanel: null
+    };
+
+    // --- 工具函數 ---
+    const Utils = {
+        showCustomAlert: (message, type = 'error', duration = 3500) => {
+            if (!UIElements.customAlertBox || !UIElements.customAlertMessageBox) return;
+            UIElements.customAlertMessageBox.textContent = message;
+            UIElements.customAlertBox.className = 'custom-alert'; 
+            UIElements.customAlertBox.classList.add(type);
+            UIElements.customAlertBox.style.display = 'block';
+            if (duration > 0) { 
+                setTimeout(() => { if(UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none'; }, duration);
+            }
+        },
+        hideCustomAlert: () => {
+            if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
+        },
+        getLocalStorageKey: (dataType) => {
+            const version = "v3.10_ics_summary_update"; // MODIFIED: Version bump
+            if (dataType === 'secondary_start_groups') {
+                return `shiftSchedule_${version}_secondary_start_groups`;
+            }
+            const year = AppState.currentYear;
+            const month = AppState.currentMonth; 
+            return `shiftSchedule_${version}_${dataType}_${year}_${String(month + 1).padStart(2, '0')}`;
+        }
+    };
+
+    // --- 資料儲存 (LocalStorage) ---
+    const DataStorage = {
+        loadDataForCurrentMonth: () => {
+            try {
+                const staffData = localStorage.getItem(Utils.getLocalStorageKey('staff'));
+                AppState.staffNames = staffData ? JSON.parse(staffData) : [...AppState.defaultStaffNames];
+                if (AppState.staffNames.length === 0 && AppState.defaultStaffNames.length > 0) {
+                     AppState.staffNames = [...AppState.defaultStaffNames];
+                }
+
+                const shiftsData = localStorage.getItem(Utils.getLocalStorageKey('shifts'));
+                AppState.shifts = shiftsData ? JSON.parse(shiftsData) : {};
+                
+                const notesData = localStorage.getItem(Utils.getLocalStorageKey('notes'));
+                AppState.notes = notesData ? notesData : '';
+                if (UIElements.scheduleNotesTextarea) UIElements.scheduleNotesTextarea.value = AppState.notes;
+
+                const staffColorsData = localStorage.getItem(Utils.getLocalStorageKey('staffColors'));
+                AppState.staffColors = staffColorsData ? JSON.parse(staffColorsData) : {};
+                StaffManager.assignColorsToStaff(); 
+
+                const secondaryShiftsData = localStorage.getItem(Utils.getLocalStorageKey('secondary_shifts'));
+                AppState.secondarySchedule.shifts = secondaryShiftsData ? JSON.parse(secondaryShiftsData) : {};
+                
+                const secondaryStartGroupsData = localStorage.getItem(Utils.getLocalStorageKey('secondary_start_groups'));
+                AppState.secondarySchedule.startGroupForMonth = secondaryStartGroupsData ? JSON.parse(secondaryStartGroupsData) : {};
+
+            } catch (e) {
+                console.error("從 localStorage 讀取資料時發生錯誤:", e);
+                Utils.showCustomAlert("讀取儲存資料時發生錯誤。", "error");
+                if (AppState.staffNames.length === 0) {
+                    AppState.staffNames = [...AppState.defaultStaffNames];
+                    StaffManager.assignColorsToStaff();
+                }
+            }
+        },
+        saveDataForCurrentMonth: () => {
+            try {
+                localStorage.setItem(Utils.getLocalStorageKey('staff'), JSON.stringify(AppState.staffNames));
+                localStorage.setItem(Utils.getLocalStorageKey('shifts'), JSON.stringify(AppState.shifts));
+                localStorage.setItem(Utils.getLocalStorageKey('notes'), AppState.notes);
+                localStorage.setItem(Utils.getLocalStorageKey('staffColors'), JSON.stringify(AppState.staffColors));
+                localStorage.setItem(Utils.getLocalStorageKey('secondary_shifts'), JSON.stringify(AppState.secondarySchedule.shifts));
+                localStorage.setItem(Utils.getLocalStorageKey('secondary_start_groups'), JSON.stringify(AppState.secondarySchedule.startGroupForMonth));
+            } catch (e) {
+                console.error("儲存資料到 localStorage 時發生錯誤:", e);
+                Utils.showCustomAlert("儲存資料時發生錯誤，可能是儲存空間已滿。", "error");
+            }
+        }
+    };
+
+    // --- 第二班表 (週末) 排程邏輯 ---
+    const SecondaryScheduler = {
+        findFirstSaturdayOfMonth: (year, month_0_indexed) => {
+            for (let day = 1; day <= 7; day++) {
+                const d = new Date(year, month_0_indexed, day);
+                if (d.getDay() === 6) { 
+                    return d;
+                }
+            }
+            return null; 
+        },
+        getGroupForWeekend: (saturdayDateStr) => {
+            const groupDefinitions = AppState.secondarySchedule.groupDefinitions;
+            const numGroups = groupDefinitions.length;
+            const targetSaturday = new Date(saturdayDateStr); 
+            const year = targetSaturday.getFullYear();
+            const month_0_indexed = targetSaturday.getMonth();
+
+            const getGroupIndex = (groupName) => groupDefinitions.findIndex(g => g.name === groupName);
+
+            let baseGroupIndex; 
+            let weekendOffset = 0; 
+
+            const currentMonthKey = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}`;
+            const userDefinedStartGroupForCurrentMonth = AppState.secondarySchedule.startGroupForMonth[currentMonthKey];
+
+            if (userDefinedStartGroupForCurrentMonth && userDefinedStartGroupForCurrentMonth !== "default") {
+                baseGroupIndex = getGroupIndex(userDefinedStartGroupForCurrentMonth);
+                const firstSaturdayOfThisMonth = SecondaryScheduler.findFirstSaturdayOfMonth(year, month_0_indexed);
+                if (firstSaturdayOfThisMonth) {
+                    const diffTime = targetSaturday.getTime() - firstSaturdayOfThisMonth.getTime();
+                    weekendOffset = Math.floor(diffTime / (1000 * 60 * 60 * 24 * 7)); 
+                }
+            } else {
+                let anchorYear = AppState.secondarySchedule.epochDate.getFullYear();
+                let anchorMonth_0_indexed = AppState.secondarySchedule.epochDate.getMonth();
+                let anchorGroupIndex = 0; 
+
+                let y = (month_0_indexed === 0) ? year - 1 : year; 
+                let m = (month_0_indexed === 0) ? 11 : month_0_indexed - 1;
+                
+                while (y > AppState.secondarySchedule.epochDate.getFullYear() || 
+                      (y === AppState.secondarySchedule.epochDate.getFullYear() && m >= AppState.secondarySchedule.epochDate.getMonth())) {
+                    const monthKey = `${y}-${String(m + 1).padStart(2, '0')}`;
+                    const monthStartGroup = AppState.secondarySchedule.startGroupForMonth[monthKey];
+                    if (monthStartGroup && monthStartGroup !== "default") {
+                        anchorYear = y;
+                        anchorMonth_0_indexed = m;
+                        anchorGroupIndex = getGroupIndex(monthStartGroup);
+                        break; 
+                    }
+                    m--;
+                    if (m < 0) { m = 11; y--; }
+                }
+                
+                const firstSaturdayOfAnchorMonth = SecondaryScheduler.findFirstSaturdayOfMonth(anchorYear, anchorMonth_0_indexed);
+                 if (!firstSaturdayOfAnchorMonth) { 
+                    console.error("無法找到錨點月份的第一個星期六。將使用預設組。");
+                    return groupDefinitions[0]; 
+                }
+
+                baseGroupIndex = anchorGroupIndex;
+                let effectiveAnchorSaturday = firstSaturdayOfAnchorMonth;
+                let totalWeekendsPassed = 0;
+                let tempDate = new Date(effectiveAnchorSaturday.getTime());
+
+                while(tempDate.getTime() <= targetSaturday.getTime()){
+                    if(tempDate.getTime() === targetSaturday.getTime()){
+                        break;
+                    }
+                    tempDate.setDate(tempDate.getDate() + 7); 
+                    if(tempDate.getTime() <= targetSaturday.getTime()){ 
+                         totalWeekendsPassed++;
+                    }
+                }
+                weekendOffset = totalWeekendsPassed;
+            }
+            
+            if (baseGroupIndex === -1 || baseGroupIndex === undefined) baseGroupIndex = 0; 
+
+            const finalGroupIndex = (baseGroupIndex + weekendOffset + numGroups) % numGroups; 
+            return groupDefinitions[finalGroupIndex];
+        },
+        ensureScheduleForCurrentMonth: () => {
+            const year = AppState.currentYear;
+            const month_0_indexed = AppState.currentMonth;
+            const daysInMonth = new Date(year, month_0_indexed + 1, 0).getDate();
+            let needsSave = false;
+
+            for (const dateKey in AppState.secondarySchedule.shifts) {
+                if (dateKey.startsWith(`${year}-${String(month_0_indexed + 1).padStart(2, '0')}`)) {
+                    delete AppState.secondarySchedule.shifts[dateKey];
+                }
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const currentDate = new Date(year, month_0_indexed, day);
+                const dayOfWeek = currentDate.getDay(); 
+
+                if (dayOfWeek === 6) { 
+                    const dateStrSat = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const weekendGroup = SecondaryScheduler.getGroupForWeekend(dateStrSat);
+                    
+                    if (weekendGroup) {
+                        AppState.secondarySchedule.shifts[dateStrSat] = weekendGroup.name;
+                        needsSave = true;
+                        if (day + 1 <= daysInMonth) {
+                            const dateStrSun = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day + 1).padStart(2, '0')}`;
+                            AppState.secondarySchedule.shifts[dateStrSun] = weekendGroup.name;
+                        }
+                    }
+                }
+            }
+            if (needsSave) {
+                DataStorage.saveDataForCurrentMonth();
+            }
+        }
+    };
+
+    // --- 主要班表人員管理 ---
+    const StaffManager = { 
+        assignColorsToStaff: () => {
+            const newStaffColors = {};
+            let localNextColorIndex = 0; 
+            AppState.staffNames.forEach(name => {
+                if (AppState.staffColors && AppState.staffColors[name]) {
+                    newStaffColors[name] = AppState.staffColors[name];
+                }
+            });
+
+            const usedBackgroundColors = new Set(Object.values(newStaffColors).map(color => color.background));
+
+            AppState.staffNames.forEach(name => {
+                if (!newStaffColors[name]) { 
+                    let assigned = false;
+                    for (let i = 0; i < PREDEFINED_COLORS.length; i++) {
+                        const colorCandidate = PREDEFINED_COLORS[(localNextColorIndex + i) % PREDEFINED_COLORS.length];
+                        if (!usedBackgroundColors.has(colorCandidate.background)) {
+                            newStaffColors[name] = colorCandidate;
+                            usedBackgroundColors.add(colorCandidate.background); 
+                            assigned = true;
+                            break;
+                        }
+                    }
+                    if (!assigned) { 
+                        newStaffColors[name] = PREDEFINED_COLORS[localNextColorIndex % PREDEFINED_COLORS.length];
+                    }
+                    localNextColorIndex++;
+                }
+            });
+            AppState.staffColors = newStaffColors;
+        },
+        processStaffNames: () => {
+            if (!UIElements.staffNameInput) return;
+            const namesText = UIElements.staffNameInput.value.trim();
+            if (namesText) {
+                const newStaff = namesText.split('\n').map(name => name.trim()).filter(name => name); 
+                if (newStaff.length > 0) {
+                    AppState.staffNames = Array.from(new Set([...AppState.staffNames, ...newStaff]));
+                    StaffManager.assignColorsToStaff(); 
+                    UI.updateStaffListUI();
+                    UI.updateStaffFilterUI(); 
+                    DataStorage.saveDataForCurrentMonth();
+                    UIElements.staffNameInput.value = ''; 
+                    Utils.showCustomAlert("主要班表人員名單已更新。", "success");
+                } else {
+                    Utils.showCustomAlert("請輸入有效的主要班表人員名單。", "error");
+                }
+            } else {
+                 Utils.showCustomAlert("主要班表人員名單輸入框為空，未做更改。", "info");
+            }
+        },
+        removeStaffMember: (indexToRemove) => {
+            const removedName = AppState.staffNames[indexToRemove];
+            AppState.staffNames.splice(indexToRemove, 1); 
+            delete AppState.staffColors[removedName]; 
+
+            const currentMonthPrefix = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+            for (const date in AppState.shifts) {
+                if (AppState.shifts.hasOwnProperty(date) && date.startsWith(currentMonthPrefix)) {
+                     if (AppState.shifts[date] === removedName) {
+                        delete AppState.shifts[date];
+                    }
+                }
+            }
+            if (AppState.selectedStaffForFilter === removedName) {
+                AppState.selectedStaffForFilter = "ALL";
+            }
+
+            UI.updateStaffListUI();
+            UI.updateStaffFilterUI(); 
+            Calendar.render(); 
+            DataStorage.saveDataForCurrentMonth();
+            Utils.showCustomAlert(`${removedName} 已從主要班表移除，其在本月的相關班次已清除。`, "success");
+        }
+    };
+
+    // --- 日曆渲染與操作 ---
+    const Calendar = {
+        render: () => {
+            if (!UIElements.monthYearDisplay || !UIElements.calendarGrid) return;
+            UIElements.calendarGrid.innerHTML = ''; 
+            
+            if (AppState.activeView === 'secondary') {
+                SecondaryScheduler.ensureScheduleForCurrentMonth();
+            }
+
+            const firstDayOfMonth = new Date(AppState.currentYear, AppState.currentMonth, 1);
+            const lastDayOfMonth = new Date(AppState.currentYear, AppState.currentMonth + 1, 0);
+            const daysInMonth = lastDayOfMonth.getDate();
+            const dayOfWeek = firstDayOfMonth.getDay(); 
+
+            UIElements.monthYearDisplay.textContent = `${AppState.currentYear}年 ${AppState.currentMonth + 1}月`;
+
+            const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
+            dayNames.forEach(name => {
+                const dayHeader = document.createElement('div');
+                dayHeader.className = 'text-center font-semibold text-sm py-2 bg-slate-100 rounded-t-md';
+                dayHeader.textContent = name;
+                UIElements.calendarGrid.appendChild(dayHeader);
+            });
+
+            for (let i = 0; i < dayOfWeek; i++) {
+                const blankCell = document.createElement('div');
+                blankCell.className = 'calendar-day border border-slate-200 bg-slate-50 rounded-md'; 
+                UIElements.calendarGrid.appendChild(blankCell);
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dayCell = document.createElement('div');
+                const dateStr = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const currentDate = new Date(AppState.currentYear, AppState.currentMonth, day);
+                const currentDayOfWeek = currentDate.getDay(); 
+
+                dayCell.className = 'calendar-day border border-slate-200 p-2 flex flex-col relative rounded-md';
+                if (AppState.activeView === 'primary') { 
+                     dayCell.classList.add('cursor-pointer');
+                }
+                dayCell.dataset.date = dateStr; 
+
+                const dayNumber = document.createElement('span');
+                dayNumber.className = 'text-sm font-medium self-start'; 
+                dayNumber.textContent = day;
+                dayCell.appendChild(dayNumber);
+
+                const assignmentsContainer = document.createElement('div');
+                assignmentsContainer.className = 'mt-1 flex-grow flex items-center justify-center'; 
+
+                if (AppState.activeView === 'primary') {
+                    const primaryShiftPersonName = AppState.shifts[dateStr];
+                    if (primaryShiftPersonName) {
+                        if (AppState.selectedStaffForFilter === "ALL" || AppState.selectedStaffForFilter === primaryShiftPersonName) {
+                            const personColor = AppState.staffColors[primaryShiftPersonName] || { background: '#E0E0E0', text: '#000000' }; 
+                            const personSpan = document.createElement('span');
+                            personSpan.className = 'assigned-person truncate'; 
+                            personSpan.textContent = primaryShiftPersonName;
+                            personSpan.style.backgroundColor = personColor.background;
+                            personSpan.style.color = personColor.text;
+                            personSpan.style.border = `1px solid ${personColor.text}`; 
+                            assignmentsContainer.appendChild(personSpan);
+                            dayCell.classList.remove('filtered-out');
+                        } else {
+                            dayCell.classList.add('filtered-out'); 
+                        }
+                    } else {
+                        if (AppState.selectedStaffForFilter !== "ALL") {
+                            dayCell.classList.add('filtered-out');
+                        } else {
+                            dayCell.classList.remove('filtered-out');
+                        }
+                    }
+                    dayCell.addEventListener('click', () => UI.openAssignmentModal(dateStr));
+                } else if (AppState.activeView === 'secondary') {
+                    if (currentDayOfWeek === 6 || currentDayOfWeek === 0) { 
+                        const secondaryShiftGroupName = AppState.secondarySchedule.shifts[dateStr];
+                        if (secondaryShiftGroupName) {
+                            const groupInfo = AppState.secondarySchedule.groupDefinitions.find(g => g.name === secondaryShiftGroupName);
+                            if (groupInfo) {
+                                const groupSpan = document.createElement('span');
+                                groupSpan.className = 'assigned-group-secondary'; 
+                                groupSpan.textContent = groupInfo.name; 
+                                groupSpan.style.backgroundColor = groupInfo.color.background;
+                                groupSpan.style.color = groupInfo.color.text;
+                                groupSpan.style.borderColor = groupInfo.color.text; 
+                                assignmentsContainer.appendChild(groupSpan);
+                            }
+                        }
+                    }
+                    dayCell.classList.remove('filtered-out'); 
+                }
+                dayCell.appendChild(assignmentsContainer);
+                UIElements.calendarGrid.appendChild(dayCell);
+            }
+
+            const totalCells = dayOfWeek + daysInMonth;
+            const remainingCells = (7 - (totalCells % 7)) % 7; 
+            for (let i = 0; i < remainingCells; i++) {
+                const blankCell = document.createElement('div');
+                blankCell.className = 'calendar-day border border-slate-200 bg-slate-50 rounded-md';
+                if (AppState.activeView === 'primary' && AppState.selectedStaffForFilter !== "ALL") {
+                    blankCell.classList.add('filtered-out'); 
+                }
+                UIElements.calendarGrid.appendChild(blankCell);
+            }
+        },
+        changeMonth: (offset) => {
+            if (UIElements.scheduleNotesTextarea && AppState.activeView === 'primary') {
+                AppState.notes = UIElements.scheduleNotesTextarea.value;
+            }
+            DataStorage.saveDataForCurrentMonth(); 
+
+            AppState.currentMonth += offset;
+            if (AppState.currentMonth < 0) {
+                AppState.currentMonth = 11; 
+                AppState.currentYear--;
+            } else if (AppState.currentMonth > 11) {
+                AppState.currentMonth = 0; 
+                AppState.currentYear++;
+            }
+            
+            DataStorage.loadDataForCurrentMonth(); 
+            SecondaryScheduler.ensureScheduleForCurrentMonth(); 
+            
+            UI.updateStaffListUI(); 
+            UI.updateStaffFilterUI(); 
+            UI.updateSecondaryStartGroupSelectUI(); 
+            Calendar.render();
+        }
+    };
+
+    // --- 主要班表文字解析與匯入 ---
+    const ScheduleParser = { 
+        parseTextToIntermediateData: (text, inputYear, inputMonth_1_indexed) => {
+            const lines = text.split('\n').map(line => line.trimEnd()); 
+            let yearToUse = inputYear;
+            let monthToUse_0_indexed = inputMonth_1_indexed !== null ? inputMonth_1_indexed - 1 : null;
+            let tempStaffNames = new Set(); 
+            let tempShifts = {}; 
+            let tempNotesFromParser = ""; 
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const yearMonthMatch = line.match(/(\d+)\s*年\s*(\d+)\s*月/);
+                if (yearMonthMatch) {
+                    let parsedYearFromText = parseInt(yearMonthMatch[1]);
+                    if (parsedYearFromText < 200 && parsedYearFromText > 90) parsedYearFromText += 1911; 
+                    yearToUse = parsedYearFromText;
+                    monthToUse_0_indexed = parseInt(yearMonthMatch[2]) - 1;
+                    break; 
+                }
+            }
+            if (yearToUse === null || yearToUse === undefined || isNaN(yearToUse)) yearToUse = AppState.currentYear;
+            if (monthToUse_0_indexed === null || monthToUse_0_indexed === undefined || isNaN(monthToUse_0_indexed)) monthToUse_0_indexed = AppState.currentMonth;
+
+            let dateHeaderLineIndex = -1;
+            let datePositions = {}; 
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line.includes("姓名") && /\d/.test(line)) { 
+                    dateHeaderLineIndex = i;
+                    const dayRegex = /\b(\d{1,2})\b/g; 
+                    let match;
+                    while ((match = dayRegex.exec(line)) !== null) {
+                        datePositions[parseInt(match[1])] = match.index + Math.floor(match[1].length / 2); 
+                    }
+                    break;
+                }
+            }
+
+            let tableParseYieldedData = false; 
+            if (Object.keys(datePositions).length > 0) { 
+                for (let i = dateHeaderLineIndex + 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    if (line.trim() === "") continue; 
+
+                    if (line.match(/^\s*\d+月/) || line.includes("平日") || line.includes("假日") || line.includes("最後") || line.includes("備註")) {
+                        if (!tempNotesFromParser) tempNotesFromParser = line.trim(); else tempNotesFromParser += "\n" + line.trim();
+                        continue;
+                    }
+
+                    const nameMatch = line.match(/^([^\s值日一二三四五六0-9]+(?:\s+[^\s值日一二三四五六0-9]+)*)/);
+                    let staffName = "";
+                    if (nameMatch && nameMatch[0].length > 0 && nameMatch[0].length < 10) { 
+                        staffName = nameMatch[0].trim();
+                    } else { 
+                        if (line.length > 30 && !line.includes("值") && !tempNotesFromParser.includes(line.trim())) { 
+                             if (!tempNotesFromParser) tempNotesFromParser = line.trim(); else tempNotesFromParser += "\n" + line.trim();
+                        }
+                        continue; 
+                    }
+
+                    if (staffName.length === 0 || staffName === "姓名") continue; 
+
+                    tempStaffNames.add(staffName);
+                    tableParseYieldedData = true;
+
+                    for (const dayNumStr in datePositions) {
+                        const dayNumber = parseInt(dayNumStr);
+                        const charIndexForDay = datePositions[dayNumStr];
+                        
+                        if (charIndexForDay < line.length && (line[charIndexForDay] === '值' || line[charIndexForDay] === 'v' || line[charIndexForDay] === 'V' || line[charIndexForDay] === 'o' || line[charIndexForDay] === 'O' || line[charIndexForDay] === '0')) {
+                            const dateStr = `${yearToUse}-${String(monthToUse_0_indexed + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+                            tempShifts[dateStr] = staffName;
+                        }
+                    }
+                }
+                if (!tempNotesFromParser && lines.length > dateHeaderLineIndex + tempStaffNames.size + 1) {
+                     let staffNamesArray = Array.from(tempStaffNames);
+                     let noteStartIndex = dateHeaderLineIndex + 1; 
+                     for(let k=dateHeaderLineIndex + 1; k < lines.length; k++){
+                         let isStaffLine = false;
+                         for(const sName of staffNamesArray) {
+                             const staffLineRegex = new RegExp(`^${sName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\S+`);
+                             if(staffLineRegex.test(lines[k])) {
+                                 isStaffLine = true; 
+                                 break;
+                             }
+                         }
+                         if(isStaffLine) noteStartIndex = k + 1; else break; 
+                     }
+
+                     if (noteStartIndex < lines.length) {
+                        let potentialNoteLines = lines.slice(noteStartIndex).join("\n").trim();
+                        if (potentialNoteLines && potentialNoteLines.length > 5 ) { 
+                            tempNotesFromParser = potentialNoteLines; 
+                        }
+                     }
+                }
+            }
+
+            if (!tableParseYieldedData) { 
+                tempStaffNames.clear(); tempShifts = {}; tempNotesFromParser = ""; 
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (trimmedLine === "") continue;
+
+                    const parts = trimmedLine.split(/\s+/); 
+                    if (parts.length >= 2) {
+                        const nameCandidate = parts[0];
+                        if (nameCandidate.length > 0 && nameCandidate.length < 15 && !/^\d+$/.test(nameCandidate)) {
+                            let datesForThisName = []; let isNameDateLine = true;
+                            for (let k = 1; k < parts.length; k++) {
+                                const dayNum = parseInt(parts[k]);
+                                if (!isNaN(dayNum) && dayNum >= 1 && dayNum <= 31) {
+                                    datesForThisName.push(dayNum);
+                                } else {
+                                    isNameDateLine = false; 
+                                    break;
+                                }
+                            }
+                            if (isNameDateLine && datesForThisName.length > 0) { 
+                                tempStaffNames.add(nameCandidate);
+                                datesForThisName.forEach(dayNum => {
+                                    const dateStr = `${yearToUse}-${String(monthToUse_0_indexed + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                                    tempShifts[dateStr] = nameCandidate;
+                                });
+                            } else { 
+                                if (!tempNotesFromParser) tempNotesFromParser = trimmedLine; else tempNotesFromParser += "\n" + trimmedLine;
+                            }
+                        } else { 
+                            if (!tempNotesFromParser) tempNotesFromParser = trimmedLine; else tempNotesFromParser += "\n" + trimmedLine;
+                        }
+                    } else if (trimmedLine.length > 0) { 
+                        if (!tempNotesFromParser) tempNotesFromParser = trimmedLine; else tempNotesFromParser += "\n" + trimmedLine;
+                    }
+                }
+            }
+            const success = tempStaffNames.size > 0 || Object.keys(tempShifts).length > 0; 
+            return { success, parsedYear: yearToUse, parsedMonth: monthToUse_0_indexed, parsedStaffNames: Array.from(tempStaffNames), parsedShifts: tempShifts, parsedNotes: tempNotesFromParser };
+        },
+        applyParsedDataToAppState: (year, month_0_indexed, shiftsToApply, staffNamesToApply, notesToApply) => {
+            AppState.currentYear = year;
+            AppState.currentMonth = month_0_indexed;
+
+            const combinedStaffNames = new Set([...AppState.staffNames, ...staffNamesToApply]);
+            AppState.staffNames = Array.from(combinedStaffNames);
+            StaffManager.assignColorsToStaff(); 
+
+            const targetMonthPrefix = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}`;
+            for (const dateKey in AppState.shifts) { 
+                if (dateKey.startsWith(targetMonthPrefix)) delete AppState.shifts[dateKey];
+            }
+            for(const dateKey in shiftsToApply) { 
+                if (dateKey.startsWith(targetMonthPrefix)) { 
+                    AppState.shifts[dateKey] = shiftsToApply[dateKey];
+                } else {
+                    console.warn(`主要班次 ${dateKey} (${shiftsToApply[dateKey]}) 被忽略，因為它不屬於目標月份 ${targetMonthPrefix}`);
+                }
+            }
+
+            if (notesToApply && notesToApply.trim() !== "") {
+                AppState.notes = notesToApply; 
+            }
+            if (UIElements.scheduleNotesTextarea) UIElements.scheduleNotesTextarea.value = AppState.notes;
+
+            DataStorage.saveDataForCurrentMonth(); 
+            SecondaryScheduler.ensureScheduleForCurrentMonth(); 
+            Calendar.render(); 
+            UI.updateStaffListUI(); 
+            UI.updateStaffFilterUI(); 
+            UI.updateSecondaryStartGroupSelectUI(); 
+            Utils.showCustomAlert(`主要班表已成功匯入/更新 ${year}年${month_0_indexed + 1}月 的資料！`, "success");
+        },
+        triggerImportScheduleFromPastedText: () => {
+            if (!UIElements.fullSchedulePasteArea) return;
+            const text = UIElements.fullSchedulePasteArea.value;
+            if (!text.trim()) {
+                Utils.showCustomAlert("請先在文字區域貼上主要的班表內容。", "info");
+                return;
+            }
+            const intermediateData = ScheduleParser.parseTextToIntermediateData(text, AppState.currentYear, AppState.currentMonth + 1);
+            if (intermediateData.success) {
+                ScheduleParser.applyParsedDataToAppState(
+                    intermediateData.parsedYear, intermediateData.parsedMonth,
+                    intermediateData.parsedShifts, intermediateData.parsedStaffNames, intermediateData.parsedNotes
+                );
+                 UIElements.fullSchedulePasteArea.value = ""; 
+            } else {
+                 Utils.showCustomAlert("未能在貼上的文字中找到任何有效的主要班表資料。", "error");
+            }
+        }
+    };
+    
+    // --- UI 更新與互動邏輯 ---
+    const UI = {
+        cacheDOMElements: () => {
+            UIElements.mainTitle = document.getElementById('mainTitle');
+            UIElements.primaryShiftLeftPanel = document.getElementById('primaryShiftLeftPanel');
+            UIElements.monthYearDisplay = document.getElementById('monthYearDisplay');
+            UIElements.calendarGrid = document.getElementById('calendarGrid');
+            UIElements.staffNameInput = document.getElementById('staffNameInput');
+            UIElements.fullSchedulePasteArea = document.getElementById('fullSchedulePasteArea');
+            UIElements.staffListDiv = document.getElementById('staffList');
+            UIElements.assignmentModal = document.getElementById('assignmentModal');
+            UIElements.modalStaffList = document.getElementById('modalStaffList');
+            UIElements.clearAssignmentButton = document.getElementById('clearAssignmentButton');
+            UIElements.noStaffMessage = document.getElementById('noStaffMessage');
+            UIElements.scheduleNotesTextarea = document.getElementById('scheduleNotes');
+            UIElements.customAlertBox = document.getElementById('customAlert');
+            UIElements.customAlertMessageBox = document.getElementById('customAlertMessage');
+            UIElements.saveNotesButton = document.getElementById('saveNotesButton');
+            UIElements.staffFilterSelect = document.getElementById('staffFilterSelect'); 
+            UIElements.autoScheduleConfirmModal = document.getElementById('autoScheduleConfirmModal');
+            UIElements.autoScheduleConfirmMessage = document.getElementById('autoScheduleConfirmMessage');
+            UIElements.confirmAutoScheduleButton = document.getElementById('confirmAutoScheduleButton');
+            UIElements.startMonThuSelect = document.getElementById('startMonThuSelect');
+            UIElements.startFriSelect = document.getElementById('startFriSelect');
+            UIElements.startWeekendSelect = document.getElementById('startWeekendSelect');
+
+            UIElements.primaryScheduleTabButton = document.getElementById('primaryScheduleTabButton');
+            UIElements.secondaryScheduleTabButton = document.getElementById('secondaryScheduleTabButton');
+            
+            UIElements.primaryScheduleControls = document.getElementById('primaryScheduleControls');
+            UIElements.secondaryScheduleControlsAboveCalendar = document.getElementById('secondaryScheduleControlsAboveCalendar'); 
+            
+            UIElements.secondaryStaffInfoDiv = document.getElementById('secondaryStaffInfoDiv');
+            UIElements.secondaryStartGroupSelect = document.getElementById('secondaryStartGroupSelect');
+            UIElements.toggleSecondaryStaffInfoButton = document.getElementById('toggleSecondaryStaffInfoButton'); 
+
+            UIElements.exportPrimaryScheduleButton = document.getElementById('exportPrimaryScheduleButton');
+            UIElements.exportSecondaryScheduleButton = document.getElementById('exportSecondaryScheduleButton');
+
+            UIElements.primarySchedulePanel = document.getElementById('primary-schedule-panel');
+            UIElements.secondarySchedulePanel = document.getElementById('secondary-schedule-panel');
+        },
+        setActiveView: (viewName) => {
+            AppState.activeView = viewName;
+            if (!UIElements.primaryScheduleTabButton || !UIElements.secondaryScheduleTabButton || 
+                !UIElements.primarySchedulePanel || !UIElements.secondarySchedulePanel ||
+                !UIElements.primaryScheduleControls || !UIElements.secondaryScheduleControlsAboveCalendar ||
+                !UIElements.primaryShiftLeftPanel || !UIElements.mainTitle) {
+                console.error("UI elements for tab switching are not cached.");
+                return;
+            }
+
+            const isPrimary = viewName === 'primary';
+
+            // MODIFIED: Title update logic
+            if (isPrimary) {
+                UIElements.mainTitle.textContent = "SHIFT TOOL";
+            } else { // 'secondary' view
+                UIElements.mainTitle.textContent = "SHIFT TOOL (第二班表 - 週末)";
+            }
+            
+            UIElements.primaryScheduleTabButton.classList.toggle('active-tab', isPrimary);
+            UIElements.primaryScheduleTabButton.setAttribute('aria-selected', isPrimary);
+            UIElements.secondaryScheduleTabButton.classList.toggle('active-tab', !isPrimary);
+            UIElements.secondaryScheduleTabButton.setAttribute('aria-selected', !isPrimary);
+
+            UIElements.primaryScheduleControls.style.display = isPrimary ? 'block' : 'none';
+            UIElements.secondaryScheduleControlsAboveCalendar.classList.toggle('hidden', isPrimary);
+            UIElements.primaryShiftLeftPanel.style.display = isPrimary ? 'block' : 'none';
+            
+            if (!isPrimary) { 
+                UI.updateSecondaryStaffInfoUI();
+                UI.updateSecondaryStartGroupSelectUI();
+                const showInfo = AppState.secondarySchedule.isStaffInfoVisible;
+                UIElements.secondaryStaffInfoDiv.classList.toggle('hidden', !showInfo);
+                UIElements.toggleSecondaryStaffInfoButton.textContent = showInfo ? '隱藏組別成員' : '顯示組別成員';
+            }
+            Calendar.render(); 
+        },
+        toggleSecondaryStaffInfo: () => {
+            AppState.secondarySchedule.isStaffInfoVisible = !AppState.secondarySchedule.isStaffInfoVisible;
+            if (AppState.secondarySchedule.isStaffInfoVisible) {
+                UIElements.secondaryStaffInfoDiv.classList.remove('hidden');
+                UIElements.toggleSecondaryStaffInfoButton.textContent = '隱藏組別成員';
+            } else {
+                UIElements.secondaryStaffInfoDiv.classList.add('hidden');
+                UIElements.toggleSecondaryStaffInfoButton.textContent = '顯示組別成員';
+            }
+        },
+        updateStaffListUI: () => { 
+            if (!UIElements.staffListDiv) return;
+            UIElements.staffListDiv.innerHTML = ''; 
+            if (AppState.staffNames.length === 0) {
+                UIElements.staffListDiv.innerHTML = '<p class="text-sm text-slate-500">本月尚未新增任何主要班表人員。</p>';
+                return;
+            }
+            const ul = document.createElement('ul');
+            ul.className = 'space-y-1';
+            AppState.staffNames.forEach((name, index) => {
+                const li = document.createElement('li');
+                li.className = 'text-sm p-2 bg-sky-50 rounded-md flex justify-between items-center';
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = name;
+
+                const colorIndicator = document.createElement('span');
+                colorIndicator.className = 'staff-color-indicator';
+                const personColor = AppState.staffColors[name] || { background: '#CCCCCC', text: '#000000' }; 
+                colorIndicator.style.backgroundColor = personColor.background;
+                colorIndicator.style.borderColor = personColor.text; 
+                
+                const nameContainer = document.createElement('div'); 
+                nameContainer.appendChild(colorIndicator);
+                nameContainer.appendChild(nameSpan);
+                li.appendChild(nameContainer);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '&times;'; 
+                removeBtn.className = 'text-red-500 hover:text-red-700 font-bold px-1 leading-none';
+                removeBtn.title = `移除 ${name}`;
+                removeBtn.setAttribute('aria-label', `移除主要班表人員 ${name}`);
+                removeBtn.onclick = (event) => { event.stopPropagation(); StaffManager.removeStaffMember(index); };
+                li.appendChild(removeBtn);
+                ul.appendChild(li);
+            });
+            UIElements.staffListDiv.appendChild(ul);
+        },
+        updateSecondaryStaffInfoUI: () => { 
+            if (!UIElements.secondaryStaffInfoDiv) return;
+            UIElements.secondaryStaffInfoDiv.innerHTML = '';
+            const header = document.createElement('p');
+            header.className = 'font-medium text-slate-700 mb-1';
+            header.textContent = '固定人員: ' + AppState.secondarySchedule.staff.join('、');
+            UIElements.secondaryStaffInfoDiv.appendChild(header);
+
+            const groupsList = document.createElement('ul');
+            groupsList.className = 'list-none space-y-1';
+            AppState.secondarySchedule.groupDefinitions.forEach(group => {
+                const listItem = document.createElement('li');
+                listItem.className = 'flex items-center';
+                const colorIndicator = document.createElement('span');
+                colorIndicator.className = 'staff-color-indicator';
+                colorIndicator.style.backgroundColor = group.color.background;
+                colorIndicator.style.borderColor = group.color.text;
+                listItem.appendChild(colorIndicator);
+                listItem.appendChild(document.createTextNode(`組 ${group.name}: ${group.members.join('、')}`));
+                groupsList.appendChild(listItem);
+            });
+            UIElements.secondaryStaffInfoDiv.appendChild(groupsList);
+        },
+        updateSecondaryStartGroupSelectUI: () => { 
+            if (!UIElements.secondaryStartGroupSelect) return;
+            const select = UIElements.secondaryStartGroupSelect;
+            select.innerHTML = ''; 
+
+            const defaultOption = document.createElement('option');
+            defaultOption.value = "default";
+            defaultOption.textContent = "預設輪替 (依基準日)";
+            select.appendChild(defaultOption);
+
+            AppState.secondarySchedule.groupDefinitions.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.name;
+                option.textContent = `${group.name} 組開始`;
+                select.appendChild(option);
+            });
+            
+            const currentMonthKey = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+            select.value = AppState.secondarySchedule.startGroupForMonth[currentMonthKey] || "default";
+        },
+        updateStaffFilterUI: () => { 
+            if (!UIElements.staffFilterSelect) return;
+            const currentFilterValue = UIElements.staffFilterSelect.value; 
+            UIElements.staffFilterSelect.innerHTML = ''; 
+            const allOption = document.createElement('option');
+            allOption.value = "ALL";
+            allOption.textContent = "所有主要班表人員";
+            UIElements.staffFilterSelect.appendChild(allOption);
+            AppState.staffNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                UIElements.staffFilterSelect.appendChild(option);
+            });
+            if (AppState.staffNames.includes(currentFilterValue)) {
+                UIElements.staffFilterSelect.value = currentFilterValue;
+            } else {
+                 UIElements.staffFilterSelect.value = "ALL"; 
+                 AppState.selectedStaffForFilter = "ALL"; 
+            }
+        },
+        openAssignmentModal: (dateStr) => { 
+            if (!UIElements.assignmentModal || !UIElements.modalStaffList || !UIElements.noStaffMessage || !UIElements.clearAssignmentButton) return;
+            AppState.selectedDateForAssignment = dateStr;
+            UIElements.modalStaffList.innerHTML = ''; 
+            if (AppState.staffNames.length === 0) { 
+                UIElements.noStaffMessage.classList.remove('hidden');
+                UIElements.modalStaffList.classList.add('hidden');
+                UIElements.clearAssignmentButton.classList.add('hidden');
+            } else {
+                UIElements.noStaffMessage.classList.add('hidden');
+                UIElements.modalStaffList.classList.remove('hidden');
+                AppState.staffNames.forEach(name => {
+                    const button = document.createElement('button');
+                    button.type = 'button'; 
+                    const colorIndicator = document.createElement('span');
+                    colorIndicator.className = 'staff-color-indicator';
+                    const personColor = AppState.staffColors[name] || { background: '#CCCCCC', text: '#000000' };
+                    colorIndicator.style.backgroundColor = personColor.background;
+                    colorIndicator.style.borderColor = personColor.text;
+                    const nameText = document.createTextNode(name);
+                    button.appendChild(colorIndicator);
+                    button.appendChild(nameText);
+                    button.className = 'block w-full text-left p-2 hover:bg-slate-100 rounded-md flex items-center';
+                    button.onclick = () => UI.assignShift(name);
+                    UIElements.modalStaffList.appendChild(button);
+                });
+                if (AppState.shifts[AppState.selectedDateForAssignment]) {
+                    UIElements.clearAssignmentButton.classList.remove('hidden');
+                    UIElements.clearAssignmentButton.textContent = `清除 ${AppState.shifts[AppState.selectedDateForAssignment]} 的主要班表值班`;
+                } else {
+                    UIElements.clearAssignmentButton.classList.add('hidden');
+                }
+            }
+            UIElements.assignmentModal.style.display = 'block';
+            const firstButton = UIElements.modalStaffList.querySelector('button');
+            if (firstButton) {
+                firstButton.focus();
+            } else if (!UIElements.clearAssignmentButton.classList.contains('hidden')) {
+                UIElements.clearAssignmentButton.focus();
+            } else {
+                 UIElements.assignmentModal.querySelector('.close-button').focus();
+            }
+        },
+        closeAssignmentModal: () => {
+            if (UIElements.assignmentModal) UIElements.assignmentModal.style.display = 'none';
+            AppState.selectedDateForAssignment = null; 
+        },
+        assignShift: (personName) => { 
+            if (AppState.selectedDateForAssignment) {
+                AppState.shifts[AppState.selectedDateForAssignment] = personName;
+                Calendar.render(); 
+                DataStorage.saveDataForCurrentMonth();
+                UI.closeAssignmentModal();
+                Utils.showCustomAlert(`${personName} 已被指派至 ${AppState.selectedDateForAssignment} 的主要班表。`, "success");
+            }
+        },
+        clearAssignment: () => { 
+            if (AppState.selectedDateForAssignment && AppState.shifts[AppState.selectedDateForAssignment]) {
+                const clearedPerson = AppState.shifts[AppState.selectedDateForAssignment];
+                delete AppState.shifts[AppState.selectedDateForAssignment];
+                Calendar.render();
+                DataStorage.saveDataForCurrentMonth();
+                UI.closeAssignmentModal();
+                Utils.showCustomAlert(`${AppState.selectedDateForAssignment} 的 ${clearedPerson} 主要班表值班已清除。`, "success");
+            }
+        },
+        openAutoScheduleConfirmModal: () => { 
+            const { autoScheduleConfirmModal, autoScheduleConfirmMessage, confirmAutoScheduleButton, startMonThuSelect, startFriSelect, startWeekendSelect } = UIElements;
+            if (!autoScheduleConfirmModal || !autoScheduleConfirmMessage || !confirmAutoScheduleButton || !startMonThuSelect || !startFriSelect || !startWeekendSelect) return;
+            
+            autoScheduleConfirmMessage.textContent = `您確定要為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生初步主要班表嗎？\n這將會覆蓋本月現有的每日主要班表排班。`;
+            
+            [startMonThuSelect, startFriSelect, startWeekendSelect].forEach(select => {
+                select.innerHTML = ''; 
+                const defaultOption = document.createElement('option');
+                defaultOption.value = ""; 
+                defaultOption.textContent = "依預設排序 (名單首位)";
+                select.appendChild(defaultOption);
+            });
+
+            AppState.staffNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                startMonThuSelect.appendChild(option.cloneNode(true));
+                startFriSelect.appendChild(option.cloneNode(true));
+                startWeekendSelect.appendChild(option.cloneNode(true));
+            });
+            autoScheduleConfirmModal.style.display = 'block';
+            startMonThuSelect.focus(); 
+        },
+        closeAutoScheduleConfirmModal: () => {
+            if (UIElements.autoScheduleConfirmModal) UIElements.autoScheduleConfirmModal.style.display = 'none';
+        }
+    };
+
+    // --- 匯出功能 ---
+    const Exporter = { 
+        exportToICS: () => {
+            let shiftsToExport = {}; 
+            const isSinglePersonExport = AppState.selectedStaffForFilter !== "ALL";
+
+            if (isSinglePersonExport) {
+                const currentMonthPrefix = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+                for (const dateStr in AppState.shifts) {
+                    if (dateStr.startsWith(currentMonthPrefix) && AppState.shifts[dateStr] === AppState.selectedStaffForFilter) {
+                        shiftsToExport[dateStr] = AppState.shifts[dateStr];
+                    }
+                }
+                 if (Object.keys(shiftsToExport).length === 0) {
+                    Utils.showCustomAlert(`主要班表人員 ${AppState.selectedStaffForFilter} 在本月沒有班表資料可供匯出。`, "info");
+                    return;
+                }
+            } else {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key.includes('_shifts_') && !key.includes('_secondary_shifts_') && key.startsWith('shiftSchedule_')) { 
+                        try {
+                            const monthShifts = JSON.parse(localStorage.getItem(key));
+                            Object.assign(shiftsToExport, monthShifts); 
+                        } catch (e) { console.error("從 localStorage 解析主要班次時發生錯誤，鍵值:", key, e); }
+                    }
+                }
+            }
+
+            if (Object.keys(shiftsToExport).length === 0) { Utils.showCustomAlert("沒有任何主要班表資料可供匯出。", "info"); return; }
+
+            let icsEvents = ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//SHIFTTOOL_V3.10_ICS_SUMMARY_UPDATE//Local//ZH`]; // MODIFIED: PRODID
+            let uniqueYearsExport = new Set(); 
+
+            for (const dateStr in shiftsToExport) {
+                if (shiftsToExport.hasOwnProperty(dateStr)) {
+                    const personName = shiftsToExport[dateStr]; 
+                    const dateParts = dateStr.split('-'); 
+                    if (dateParts.length !== 3) continue; 
+
+                    const year = parseInt(dateParts[0]), month = parseInt(dateParts[1]) - 1, day = parseInt(dateParts[2]);
+                    uniqueYearsExport.add(year.toString()); 
+
+                    const startDate = new Date(Date.UTC(year, month, day)); 
+                    const endDate = new Date(Date.UTC(year, month, day + 1)); 
+
+                    const formatDateToICS = (d) => d.getUTCFullYear() + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0');
+                    
+                    // MODIFIED: ICS Event Summary
+                    let eventSummary = "";
+                    if (isSinglePersonExport) {
+                        eventSummary = "❗️值班";
+                    } else {
+                        eventSummary = personName;
+                    }
+
+                    icsEvents.push('BEGIN:VEVENT'); 
+                    icsEvents.push(`UID:primary-${dateStr}-${personName.replace(/\s+/g, '')}@shifttool.local`); 
+                    icsEvents.push(`DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, '').substring(0, 15)}Z`); 
+                    icsEvents.push(`DTSTART;VALUE=DATE:${formatDateToICS(startDate)}`); 
+                    icsEvents.push(`DTEND;VALUE=DATE:${formatDateToICS(endDate)}`); 
+                    icsEvents.push(`SUMMARY:${eventSummary}`); // MODIFIED
+                    icsEvents.push(`DESCRIPTION:值班人員: ${personName}`); // Description remains for clarity
+                    icsEvents.push('END:VEVENT'); 
+                }
+            }
+            icsEvents.push('END:VCALENDAR'); 
+
+            const icsContent = icsEvents.join('\r\n'); 
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+
+            let filenameYearPart = "主要班表";
+            if (isSinglePersonExport) { // Use selectedStaffForFilter for single person export filename
+                 filenameYearPart = `主要班表_${AppState.selectedStaffForFilter}_${AppState.currentYear}${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+            } else if (uniqueYearsExport.size === 1) {
+                filenameYearPart = `主要班表_${Array.from(uniqueYearsExport)[0]}`;
+            } else if (uniqueYearsExport.size > 1) {
+                filenameYearPart = `主要班表_多年度`;
+            }
+            link.download = `${filenameYearPart}.ics`;
+
+            document.body.appendChild(link);
+            link.click(); 
+            document.body.removeChild(link); 
+            URL.revokeObjectURL(link.href); 
+            Utils.showCustomAlert("主要班表已匯出為 .ics 檔案。", "success");
+        },
+        exportSecondaryToICS: () => {
+            const shiftsToExport = {}; 
+            const currentMonthPrefix = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+
+            for (const dateStr in AppState.secondarySchedule.shifts) {
+                if (dateStr.startsWith(currentMonthPrefix)) {
+                    shiftsToExport[dateStr] = AppState.secondarySchedule.shifts[dateStr];
+                }
+            }
+
+            if (Object.keys(shiftsToExport).length === 0) {
+                Utils.showCustomAlert("本月沒有第二班表資料可供匯出。", "info");
+                return;
+            }
+
+            let icsEvents = ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//SHIFTTOOL_V3.10_ICS_SUMMARY_UPDATE//Local//ZH`]; // MODIFIED: PRODID
+            
+            for (const dateStr in shiftsToExport) {
+                if (shiftsToExport.hasOwnProperty(dateStr)) {
+                    const groupName = shiftsToExport[dateStr];
+                    const groupInfo = AppState.secondarySchedule.groupDefinitions.find(g => g.name === groupName);
+                    
+                    const dateParts = dateStr.split('-');
+                    if (dateParts.length !== 3) continue;
+
+                    const year = parseInt(dateParts[0]), month = parseInt(dateParts[1]) - 1, day = parseInt(dateParts[2]);
+                    const startDate = new Date(Date.UTC(year, month, day));
+                    const endDate = new Date(Date.UTC(year, month, day + 1));
+
+                    const formatDateToICS = (d) => d.getUTCFullYear() + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0');
+
+                    icsEvents.push('BEGIN:VEVENT');
+                    icsEvents.push(`UID:secondary-${dateStr}-${groupName.replace(/\s+/g, '')}@shifttool.local`);
+                    icsEvents.push(`DTSTAMP:${new Date().toISOString().replace(/[-:.]/g, '').substring(0, 15)}Z`);
+                    icsEvents.push(`DTSTART;VALUE=DATE:${formatDateToICS(startDate)}`);
+                    icsEvents.push(`DTEND;VALUE=DATE:${formatDateToICS(endDate)}`);
+                    icsEvents.push(`SUMMARY:✈️${groupInfo ? groupInfo.name : groupName}組`); 
+                    if (groupInfo && groupInfo.members) {
+                        icsEvents.push(`DESCRIPTION:組員: ${groupInfo.members.join('、')}`);
+                    }
+                    icsEvents.push('END:VEVENT');
+                }
+            }
+            icsEvents.push('END:VCALENDAR');
+
+            const icsContent = icsEvents.join('\r\n');
+            const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `第二班表_${AppState.currentYear}${String(AppState.currentMonth + 1).padStart(2, '0')}.ics`;
+
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            Utils.showCustomAlert("第二班表已匯出為 .ics 檔案。", "success");
+        }
+    };
+
+    // --- 主要班表自動排程邏輯 ---
+    const AutoScheduler = { 
+        triggerAutoSchedule: () => {
+            if (AppState.staffNames.length === 0) {
+                Utils.showCustomAlert("請先新增主要班表人員名單才能自動排班。", "info");
+                return;
+            }
+            UI.openAutoScheduleConfirmModal(); 
+        },
+        proceedWithAutoSchedule: () => { 
+            Utils.showCustomAlert("正在自動產生主要班表...", "loading", 0); 
+            const currentMonthPrefix = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+            for (const dateKey in AppState.shifts) {
+                if (dateKey.startsWith(currentMonthPrefix)) {
+                    delete AppState.shifts[dateKey];
+                }
+            }
+
+            const startMonThuName = UIElements.startMonThuSelect ? UIElements.startMonThuSelect.value : "";
+            const startFriName = UIElements.startFriSelect ? UIElements.startFriSelect.value : "";
+            const startWeekendName = UIElements.startWeekendSelect ? UIElements.startWeekendSelect.value : "";
+
+            const newShifts = AutoScheduler.generateBasicRoundRobin(
+                AppState.currentYear, AppState.currentMonth, AppState.staffNames, 
+                startMonThuName, startFriName, startWeekendName
+            );
+            for (const dateStr in newShifts) AppState.shifts[dateStr] = newShifts[dateStr]; 
+            
+            DataStorage.saveDataForCurrentMonth(); 
+            Calendar.render(); 
+            Utils.hideCustomAlert(); 
+            Utils.showCustomAlert(`已為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生主要班表。`, "success");
+        },
+        generateBasicRoundRobin: (year, month_0_indexed, staffList, startMonThuName = "", startFriName = "", startWeekendName = "") => {
+            const newShifts = {};
+            if (!staffList || staffList.length === 0) return newShifts;
+
+            const daysInMonth = new Date(year, month_0_indexed + 1, 0).getDate();
+            
+            let monThuStaffIndex = 0;
+            if (startMonThuName && staffList.includes(startMonThuName)) monThuStaffIndex = staffList.indexOf(startMonThuName);
+            
+            let friStaffIndex = 0;
+            if (startFriName && staffList.includes(startFriName)) friStaffIndex = staffList.indexOf(startFriName);
+            
+            let weekendStaffIndex = 0;
+            if (startWeekendName && staffList.includes(startWeekendName)) weekendStaffIndex = staffList.indexOf(startWeekendName);
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayOfWeek = new Date(year, month_0_indexed, day).getDay(); 
+                
+                if (newShifts[dateStr]) continue; 
+
+                if (dayOfWeek >= 1 && dayOfWeek <= 4) { 
+                    newShifts[dateStr] = staffList[monThuStaffIndex];
+                    monThuStaffIndex = (monThuStaffIndex + 1) % staffList.length;
+                } else if (dayOfWeek === 5) { 
+                    newShifts[dateStr] = staffList[friStaffIndex];
+                    friStaffIndex = (friStaffIndex + 1) % staffList.length;
+                } else if (dayOfWeek === 6) { 
+                    const assignedPerson = staffList[weekendStaffIndex];
+                    newShifts[dateStr] = assignedPerson;
+                    if (day + 1 <= daysInMonth) {
+                        const sundayDateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day + 1).padStart(2, '0')}`;
+                        const nextDayOfWeek = new Date(year, month_0_indexed, day + 1).getDay();
+                        if (nextDayOfWeek === 0) newShifts[sundayDateStr] = assignedPerson; 
+                    }
+                    weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
+                } else if (dayOfWeek === 0) { 
+                    if (!newShifts[dateStr]) {
+                        newShifts[dateStr] = staffList[weekendStaffIndex];
+                        weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
+                    }
+                }
+            }
+            return newShifts;
+        },
+        carryOverToNextMonth: () => {
+            if (AppState.staffNames.length === 0) {
+                Utils.showCustomAlert("請先新增主要班表人員才能預排次月班表。", "info");
+                return;
+            }
+            Utils.showCustomAlert("正在預排次月班表...", "loading", 0);
+
+            const currentYear = AppState.currentYear;
+            const currentMonth_0_indexed = AppState.currentMonth;
+            const staffList = AppState.staffNames;
+
+            let lastMonThuStaff = "";
+            let lastFriStaff = "";
+            let lastWeekendStaff = "";
+
+            const daysInCurrentMonth = new Date(currentYear, currentMonth_0_indexed + 1, 0).getDate();
+
+            for (let day = daysInCurrentMonth; day >= 1; day--) {
+                const dateStr = `${currentYear}-${String(currentMonth_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayOfWeek = new Date(currentYear, currentMonth_0_indexed, day).getDay();
+                const assignedPerson = AppState.shifts[dateStr];
+
+                if (assignedPerson) {
+                    if (!lastMonThuStaff && dayOfWeek >= 1 && dayOfWeek <= 4) lastMonThuStaff = assignedPerson;
+                    if (!lastFriStaff && dayOfWeek === 5) lastFriStaff = assignedPerson;
+                    if (!lastWeekendStaff && (dayOfWeek === 0 || dayOfWeek === 6)) lastWeekendStaff = assignedPerson;
+                }
+                if (lastMonThuStaff && lastFriStaff && lastWeekendStaff) break; 
+            }
+            
+            const getNextStaff = (currentStaff) => {
+                if (!currentStaff || !staffList.includes(currentStaff)) return staffList[0] || ""; 
+                const currentIndex = staffList.indexOf(currentStaff);
+                return staffList[(currentIndex + 1) % staffList.length];
+            };
+
+            const startNextMonThu = getNextStaff(lastMonThuStaff);
+            const startNextFri = getNextStaff(lastFriStaff);
+            const startNextWeekend = getNextStaff(lastWeekendStaff);
+
+            if (UIElements.scheduleNotesTextarea && AppState.activeView === 'primary') {
+                 AppState.notes = UIElements.scheduleNotesTextarea.value;
+            }
+            DataStorage.saveDataForCurrentMonth(); 
+
+            let nextMonth_0_indexed = currentMonth_0_indexed + 1;
+            let nextMonthYear = currentYear;
+            if (nextMonth_0_indexed > 11) {
+                nextMonth_0_indexed = 0;
+                nextMonthYear++;
+            }
+            
+            AppState.currentYear = nextMonthYear;
+            AppState.currentMonth = nextMonth_0_indexed;
+            
+            DataStorage.loadDataForCurrentMonth(); 
+            
+            const nextMonthPrefix = `${nextMonthYear}-${String(nextMonth_0_indexed + 1).padStart(2, '0')}`;
+            for (const dateKey in AppState.shifts) {
+                if (dateKey.startsWith(nextMonthPrefix)) {
+                    delete AppState.shifts[dateKey];
+                }
+            }
+
+            const newShifts = AutoScheduler.generateBasicRoundRobin(
+                nextMonthYear, nextMonth_0_indexed, AppState.staffNames, 
+                startNextMonThu, startNextFri, startNextWeekend
+            );
+
+            for (const dateStr in newShifts) {
+                AppState.shifts[dateStr] = newShifts[dateStr];
+            }
+            
+            DataStorage.saveDataForCurrentMonth(); 
+            
+            UI.setActiveView('primary'); 
+            UI.updateStaffListUI(); 
+            UI.updateStaffFilterUI();
+            UI.updateSecondaryStartGroupSelectUI(); 
+            Calendar.render(); 
+            SecondaryScheduler.ensureScheduleForCurrentMonth(); 
+
+            Utils.hideCustomAlert();
+            Utils.showCustomAlert(`已自動預排 ${nextMonthYear}年 ${nextMonth_0_indexed + 1}月 的主要班表。`, "success");
+        }
+    };
+    
+    // --- 初始化與事件監聽 ---
+    document.addEventListener('DOMContentLoaded', () => {
+        UI.cacheDOMElements(); 
+        DataStorage.loadDataForCurrentMonth(); 
+        SecondaryScheduler.ensureScheduleForCurrentMonth(); 
+        
+        UI.updateStaffListUI(); 
+        UI.updateStaffFilterUI(); 
+        UI.updateSecondaryStartGroupSelectUI();
+        UI.setActiveView(AppState.activeView); 
+        
+        if (UIElements.saveNotesButton) {
+            UIElements.saveNotesButton.addEventListener('click', () => {
+                if (UIElements.scheduleNotesTextarea) AppState.notes = UIElements.scheduleNotesTextarea.value;
+                DataStorage.saveDataForCurrentMonth();
+                Utils.showCustomAlert("備註已儲存。", "success");
+            });
+        }
+        if (UIElements.clearAssignmentButton) UIElements.clearAssignmentButton.onclick = UI.clearAssignment;
+        
+        if (UIElements.staffFilterSelect) {
+            UIElements.staffFilterSelect.addEventListener('change', (event) => {
+                AppState.selectedStaffForFilter = event.target.value;
+                 // MODIFIED: Ensure isSinglePersonExport flag is correctly determined for export logic
+                // The actual filtering for display is handled by Calendar.render()
+                if (AppState.activeView === 'primary') Calendar.render();
+            });
+        }
+
+        if (UIElements.primaryScheduleTabButton) {
+            UIElements.primaryScheduleTabButton.addEventListener('click', () => UI.setActiveView('primary'));
+        }
+        if (UIElements.secondaryScheduleTabButton) {
+            UIElements.secondaryScheduleTabButton.addEventListener('click', () => UI.setActiveView('secondary'));
+        }
+
+        if (UIElements.secondaryStartGroupSelect) {
+            UIElements.secondaryStartGroupSelect.addEventListener('change', (event) => {
+                const selectedGroup = event.target.value;
+                const currentMonthKey = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
+                if (selectedGroup === "default") {
+                    delete AppState.secondarySchedule.startGroupForMonth[currentMonthKey];
+                } else {
+                    AppState.secondarySchedule.startGroupForMonth[currentMonthKey] = selectedGroup;
+                }
+                SecondaryScheduler.ensureScheduleForCurrentMonth(); 
+                DataStorage.saveDataForCurrentMonth(); 
+                if (AppState.activeView === 'secondary') Calendar.render(); 
+                Utils.showCustomAlert("第二班表起始組別已更新。", "success");
+            });
+        }
+        
+        if (UIElements.toggleSecondaryStaffInfoButton) {
+            UIElements.toggleSecondaryStaffInfoButton.addEventListener('click', UI.toggleSecondaryStaffInfo);
+        }
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                if (UIElements.assignmentModal && UIElements.assignmentModal.style.display === 'block') UI.closeAssignmentModal();
+                if (UIElements.autoScheduleConfirmModal && UIElements.autoScheduleConfirmModal.style.display === 'block') UI.closeAutoScheduleConfirmModal();
+            }
+        });
+        window.onclick = function(event) {
+            if (UIElements.assignmentModal && event.target == UIElements.assignmentModal) UI.closeAssignmentModal();
+            if (UIElements.autoScheduleConfirmModal && event.target == UIElements.autoScheduleConfirmModal) UI.closeAutoScheduleConfirmModal();
+        }
+    });
+    </script>
+</body>
+</html>

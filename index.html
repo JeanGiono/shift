@@ -50,14 +50,14 @@
             display: none; position: fixed; z-index: 100;
             left: 0; top: 0; width: 100%; height: 100%;
             overflow: auto; background-color: rgba(0,0,0,0.5);
-            align-items: center; justify-content: center; /* For centering modal content */
+            align-items: center; justify-content: center;
         }
         .modal-content {
-            background-color: #fefefe; margin: auto; padding: 20px; /* margin: auto for centering */
+            background-color: #fefefe; margin: auto; padding: 20px;
             border: 1px solid #888; width: 90%; max-width: 600px;
             border-radius: 8px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            max-height: 90vh; /* Limit height and enable scroll */
+            max-height: 90vh;
             overflow-y: auto;
         }
         .close-button {
@@ -127,10 +127,9 @@
             flex-direction: column;
             justify-content: space-between;
         }
-        /* Management Modal specific styles */
         #managementModal .modal-content {
-            width: 95%; /* Wider for more content */
-            max-width: 700px; /* Adjust as needed */
+            width: 95%;
+            max-width: 700px;
         }
     </style>
 </head>
@@ -150,7 +149,6 @@
             </div>
         </header>
 
-        <!-- Calendar and Controls Section -->
         <section class="bg-white p-6 shadow-lg rounded-lg" aria-labelledby="calendar-section-title">
             <h2 id="calendar-section-title" class="sr-only">班表日曆與控制區域</h2>
             <nav class="mb-4 border-b border-gray-200" aria-label="Tabs">
@@ -161,9 +159,9 @@
             </nav>
 
             <div class="flex justify-between items-center mb-4">
-                <button type="button" onclick="Calendar.changeMonth(-1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="上個月">&lt; 上個月</button>
+                <button type="button" onclick="Calendar.changeMonth(-1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="上個月">&lt;</button>
                 <h2 id="monthYearDisplay" class="text-xl font-bold text-sky-700" aria-live="polite"></h2>
-                <button type="button" onclick="Calendar.changeMonth(1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="下個月">下個月 &gt;</button>
+                <button type="button" onclick="Calendar.changeMonth(1)" class="bg-slate-200 hover:bg-slate-300 text-slate-700 py-2 px-4 rounded-md transition-colors" aria-label="下個月">&gt;</button>
             </div>
 
             <div id="primary-schedule-panel" role="tabpanel" aria-labelledby="primaryScheduleTabButton"></div>
@@ -204,7 +202,6 @@
         </section>
     </main>
 
-    <!-- Management Modal -->
     <div id="managementModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="managementModalTitle">
         <div class="modal-content">
             <div class="flex justify-between items-center mb-4">
@@ -212,7 +209,6 @@
                 <button id="closeManagementModalButton" class="close-button" aria-label="關閉">&times;</button>
             </div>
             <div id="primaryShiftManagementContent">
-                <!-- Content from the original left panel will be here -->
                 <h2 class="text-lg font-semibold mb-3 text-sky-600">主要班表管理</h2>
                 <form onsubmit="event.preventDefault(); StaffManager.processStaffNames();">
                     <div class="mb-4">
@@ -261,8 +257,6 @@
         </div>
     </div>
 
-
-    <!-- Assignment Modal (for assigning shifts on calendar days) -->
     <div id="assignmentModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="assignmentModalTitle">
         <div class="modal-content">
             <button class="close-button" onclick="UI.closeAssignmentModal()" aria-label="關閉">&times;</button>
@@ -273,7 +267,6 @@
         </div>
     </div>
 
-    <!-- AutoSchedule Confirm Modal -->
     <div id="autoScheduleConfirmModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="autoScheduleConfirmModalTitle">
         <div class="modal-content max-h-[80vh] overflow-y-auto">
             <button class="close-button" onclick="UI.closeAutoScheduleConfirmModal()" aria-label="關閉">&times;</button>
@@ -301,10 +294,9 @@
     </div>
 
     <script>
-    // --- 全域狀態與設定 ---
     let AppState = {
         currentYear: new Date().getFullYear(),
-        currentMonth: new Date().getMonth(), // 0-indexed
+        currentMonth: new Date().getMonth(),
         activeView: 'primary',
         defaultStaffNames: ["劉學翰", "廖志龍", "袁國維", "張靖興", "曾名賢"],
         staffNames: [],
@@ -362,11 +354,10 @@
         secondarySchedulePanel: null,
         savePrimaryScheduleButton: null,
         clearPrimaryScheduleButton: null,
-        // New elements for management modal
         managementModal: null,
         openManagementModalButton: null,
         closeManagementModalButton: null,
-        primaryShiftManagementContent: null // The content area within the management modal
+        primaryShiftManagementContent: null
     };
 
     const Utils = {
@@ -384,7 +375,7 @@
             if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
         },
         getLocalStorageKey: (dataType, year = AppState.currentYear, month = AppState.currentMonth) => {
-            const version = "v3.14_management_modal"; // Updated version
+            const version = "v3.16_ui_tweaks"; // Updated version
             if (dataType === 'secondary_start_groups') {
                 return `shiftSchedule_${version}_secondary_start_groups`;
             }
@@ -418,8 +409,8 @@
                 const holidaysData = localStorage.getItem(Utils.getLocalStorageKey('holidays_all'));
                 AppState.holidays = holidaysData ? JSON.parse(holidaysData) : {};
             } catch (e) {
-                console.error("從 localStorage 讀取資料時發生錯誤:", e);
-                Utils.showCustomAlert("讀取儲存資料時發生錯誤。", "error");
+                // console.error("從 localStorage 讀取資料時發生錯誤:", e); // User requested removal
+                // Utils.showCustomAlert("讀取儲存資料時發生錯誤。", "error"); // User requested removal
                 if (AppState.staffNames.length === 0) {
                     AppState.staffNames = [...AppState.defaultStaffNames];
                     StaffManager.assignColorsToStaff();
@@ -436,8 +427,8 @@
                 localStorage.setItem(Utils.getLocalStorageKey('secondary_start_groups'), JSON.stringify(AppState.secondarySchedule.startGroupForMonth));
                 localStorage.setItem(Utils.getLocalStorageKey('holidays_all'), JSON.stringify(AppState.holidays));
             } catch (e) {
-                console.error("儲存資料到 localStorage 時發生錯誤:", e);
-                Utils.showCustomAlert("儲存資料時發生錯誤，可能是儲存空間已滿。", "error");
+                // console.error("儲存資料到 localStorage 時發生錯誤:", e); // User requested removal
+                // Utils.showCustomAlert("儲存資料時發生錯誤，可能是儲存空間已滿。", "error"); // User requested removal
             }
         },
         clearCurrentMonthPrimarySchedule: () => {
@@ -453,7 +444,7 @@
             if (UIElements.scheduleNotesTextarea) UIElements.scheduleNotesTextarea.value = "";
             DataStorage.saveDataForCurrentMonth();
             Calendar.render();
-            if (shiftsClearedCount > 0 || AppState.notes === "") { // Check if notes was cleared too
+            if (shiftsClearedCount > 0 || AppState.notes === "") {
                  Utils.showCustomAlert(`已清除 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 的主要班表資料與備註。`, "success");
             } else {
                  Utils.showCustomAlert(`${AppState.currentYear}年 ${AppState.currentMonth + 1}月 的主要班表無資料可清除。`, "info");
@@ -476,7 +467,7 @@
                 const month = parseInt(actualDateStr.substring(4, 6)) - 1;
                 const day = parseInt(actualDateStr.substring(6, 8));
                 if (isNaN(year) || isNaN(month) || isNaN(day) || month < 0 || month > 11 || day < 1 || day > 31) {
-                     console.warn("無效的日期組件從 ICS 解析:", actualDateStr, year, month+1, day);
+                    // console.warn("無效的日期組件從 ICS 解析:", actualDateStr, year, month+1, day); // User requested removal
                      return null;
                 }
                 return new Date(Date.UTC(year, month, day));
@@ -543,7 +534,7 @@
                         fileInput.value = "";
                     }
                 } catch (err) {
-                    console.error("解析假期檔案時發生錯誤:", err);
+                    // console.error("解析假期檔案時發生錯誤:", err); // User requested removal
                     Utils.showCustomAlert("解析假期檔案時發生錯誤。", "error");
                     fileInput.value = "";
                 }
@@ -560,9 +551,7 @@
         findFirstSaturdayOfMonth: (year, month_0_indexed) => {
             for (let day = 1; day <= 7; day++) {
                 const d = new Date(year, month_0_indexed, day);
-                if (d.getDay() === 6) {
-                    return d;
-                }
+                if (d.getDay() === 6) { return d; }
             }
             return null;
         },
@@ -611,22 +600,15 @@
                     if (m < 0) { m = 11; y--; }
                 }
                 const firstSaturdayOfAnchorMonth = SecondaryScheduler.findFirstSaturdayOfMonth(anchorYear, anchorMonth_0_indexed);
-                 if (!firstSaturdayOfAnchorMonth) {
-                    console.error("無法找到錨點月份的第一個星期六。將使用預設組。");
-                    return groupDefinitions[0];
-                }
+                 if (!firstSaturdayOfAnchorMonth) { return groupDefinitions[0]; }
                 baseGroupIndex = anchorGroupIndex;
                 let effectiveAnchorSaturday = firstSaturdayOfAnchorMonth;
                 let totalWeekendsPassed = 0;
                 let tempDate = new Date(effectiveAnchorSaturday.getTime());
                 while(tempDate.getTime() <= targetSaturday.getTime()){
-                    if(tempDate.getTime() === targetSaturday.getTime()){
-                        break;
-                    }
+                    if(tempDate.getTime() === targetSaturday.getTime()){ break; }
                     tempDate.setDate(tempDate.getDate() + 7);
-                    if(tempDate.getTime() <= targetSaturday.getTime()){
-                         totalWeekendsPassed++;
-                    }
+                    if(tempDate.getTime() <= targetSaturday.getTime()){ totalWeekendsPassed++; }
                 }
                 weekendOffset = totalWeekendsPassed;
             }
@@ -661,9 +643,7 @@
                     }
                 }
             }
-            if (needsSave) {
-                DataStorage.saveDataForCurrentMonth();
-            }
+            if (needsSave) { DataStorage.saveDataForCurrentMonth(); }
         }
     };
 
@@ -705,8 +685,8 @@
                 if (newStaff.length > 0) {
                     AppState.staffNames = Array.from(new Set([...AppState.staffNames, ...newStaff]));
                     StaffManager.assignColorsToStaff();
-                    UI.updateStaffListUI(); // This will update the list in the management modal
-                    UI.updateStaffFilterUI(); // This updates the filter on the main page
+                    UI.updateStaffListUI();
+                    UI.updateStaffFilterUI();
                     DataStorage.saveDataForCurrentMonth();
                     UIElements.staffNameInput.value = '';
                     Utils.showCustomAlert("主要班表人員名單已更新。", "success");
@@ -769,6 +749,11 @@
                 const dateStr = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const currentDate = new Date(AppState.currentYear, AppState.currentMonth, day);
                 const currentDayOfWeek = currentDate.getDay();
+                const isWeekend = currentDayOfWeek === 0 || currentDayOfWeek === 6;
+                const holidayName = AppState.holidays[dateStr];
+                const isVisuallySpecialDay = holidayName || isWeekend;
+
+
                 dayCell.className = 'calendar-day border border-slate-200 p-2 rounded-md';
                 if (AppState.activeView === 'primary') {
                      dayCell.classList.add('cursor-pointer');
@@ -778,11 +763,23 @@
                 dayNumber.className = 'text-sm font-medium self-start';
                 dayNumber.textContent = day;
                 dayCell.appendChild(dayNumber);
+
+                if (isVisuallySpecialDay) {
+                    if (!dayCell.classList.contains('filtered-out')) {
+                        dayNumber.classList.add('font-bold', 'text-red-700');
+                    } else {
+                        dayNumber.classList.remove('font-bold', 'text-red-700');
+                    }
+                } else {
+                    dayNumber.classList.remove('font-bold', 'text-red-700');
+                }
+
+
                 const contentWrapper = document.createElement('div');
                 contentWrapper.className = 'day-content-wrapper';
                 const assignmentsContainer = document.createElement('div');
                 assignmentsContainer.className = 'flex items-center justify-center';
-                const holidayName = AppState.holidays[dateStr];
+
                 if (AppState.activeView === 'primary') {
                     const primaryShiftPersonName = AppState.shifts[dateStr];
                     if (primaryShiftPersonName) {
@@ -809,40 +806,39 @@
                     }
                     dayCell.addEventListener('click', () => UI.openAssignmentModal(dateStr));
                 } else if (AppState.activeView === 'secondary') {
-                    if (currentDayOfWeek === 6 || currentDayOfWeek === 0) {
-                        if (!holidayName) {
-                            const secondaryShiftGroupName = AppState.secondarySchedule.shifts[dateStr];
-                            if (secondaryShiftGroupName) {
-                                const groupInfo = AppState.secondarySchedule.groupDefinitions.find(g => g.name === secondaryShiftGroupName);
-                                if (groupInfo) {
-                                    const groupSpan = document.createElement('span');
-                                    groupSpan.className = 'assigned-group-secondary';
-                                    groupSpan.textContent = groupInfo.name;
-                                    groupSpan.style.backgroundColor = groupInfo.color.background;
-                                    groupSpan.style.color = groupInfo.color.text;
-                                    groupSpan.style.borderColor = groupInfo.color.text;
-                                    assignmentsContainer.appendChild(groupSpan);
-                                }
+                    if (isWeekend && !holidayName) {
+                        const secondaryShiftGroupName = AppState.secondarySchedule.shifts[dateStr];
+                        if (secondaryShiftGroupName) {
+                            const groupInfo = AppState.secondarySchedule.groupDefinitions.find(g => g.name === secondaryShiftGroupName);
+                            if (groupInfo) {
+                                const groupSpan = document.createElement('span');
+                                groupSpan.className = 'assigned-group-secondary';
+                                groupSpan.textContent = groupInfo.name;
+                                groupSpan.style.backgroundColor = groupInfo.color.background;
+                                groupSpan.style.color = groupInfo.color.text;
+                                groupSpan.style.borderColor = groupInfo.color.text;
+                                assignmentsContainer.appendChild(groupSpan);
                             }
                         }
                     }
                     dayCell.classList.remove('filtered-out');
                 }
                 contentWrapper.appendChild(assignmentsContainer);
+
                 if (holidayName) {
                     const holidaySpan = document.createElement('div');
                     holidaySpan.textContent = holidayName.charAt(0);
                     holidaySpan.title = holidayName;
                     holidaySpan.className = 'holiday-info text-red-600 font-semibold text-center pt-1';
                     contentWrapper.appendChild(holidaySpan);
-                    if (!dayCell.classList.contains('filtered-out')) {
-                        dayNumber.classList.add('font-bold', 'text-red-700');
-                    }
                 }
                 dayCell.appendChild(contentWrapper);
-                if (dayCell.classList.contains('filtered-out') && !holidayName) {
-                    dayNumber.classList.remove('font-bold', 'text-red-700');
+
+                if (dayCell.classList.contains('filtered-out') && !isVisuallySpecialDay) {
+                     dayNumber.classList.remove('font-bold', 'text-red-700');
                 }
+
+
                 UIElements.calendarGrid.appendChild(dayCell);
             }
             const totalCells = dayOfWeek + daysInMonth;
@@ -1019,7 +1015,7 @@
                 if (dateKey.startsWith(targetMonthPrefix)) {
                     AppState.shifts[dateKey] = shiftsToApply[dateKey];
                 } else {
-                    console.warn(`主要班次 ${dateKey} (${shiftsToApply[dateKey]}) 被忽略，因為它不屬於目標月份 ${targetMonthPrefix}`);
+                    // console.warn(`主要班次 ${dateKey} (${shiftsToApply[dateKey]}) 被忽略，因為它不屬於目標月份 ${targetMonthPrefix}`); // User requested removal
                 }
             }
             if (notesToApply && notesToApply.trim() !== "") {
@@ -1059,18 +1055,18 @@
             UIElements.mainTitle = document.getElementById('mainTitle');
             UIElements.monthYearDisplay = document.getElementById('monthYearDisplay');
             UIElements.calendarGrid = document.getElementById('calendarGrid');
-            UIElements.staffNameInput = document.getElementById('staffNameInput'); // Inside management modal now
-            UIElements.fullSchedulePasteArea = document.getElementById('fullSchedulePasteArea'); // Inside management modal
-            UIElements.staffListDiv = document.getElementById('staffList'); // Inside management modal
+            UIElements.staffNameInput = document.getElementById('staffNameInput');
+            UIElements.fullSchedulePasteArea = document.getElementById('fullSchedulePasteArea');
+            UIElements.staffListDiv = document.getElementById('staffList');
             UIElements.assignmentModal = document.getElementById('assignmentModal');
             UIElements.modalStaffList = document.getElementById('modalStaffList');
             UIElements.clearAssignmentButton = document.getElementById('clearAssignmentButton');
             UIElements.noStaffMessage = document.getElementById('noStaffMessage');
-            UIElements.scheduleNotesTextarea = document.getElementById('scheduleNotes'); // On main page
+            UIElements.scheduleNotesTextarea = document.getElementById('scheduleNotes');
             UIElements.customAlertBox = document.getElementById('customAlert');
             UIElements.customAlertMessageBox = document.getElementById('customAlertMessage');
-            UIElements.saveNotesButton = document.getElementById('saveNotesButton'); // On main page
-            UIElements.staffFilterSelect = document.getElementById('staffFilterSelect'); // On main page
+            UIElements.saveNotesButton = document.getElementById('saveNotesButton');
+            UIElements.staffFilterSelect = document.getElementById('staffFilterSelect');
             UIElements.autoScheduleConfirmModal = document.getElementById('autoScheduleConfirmModal');
             UIElements.autoScheduleConfirmMessage = document.getElementById('autoScheduleConfirmMessage');
             UIElements.confirmAutoScheduleButton = document.getElementById('confirmAutoScheduleButton');
@@ -1084,15 +1080,12 @@
             UIElements.secondaryStaffInfoDiv = document.getElementById('secondaryStaffInfoDiv');
             UIElements.secondaryStartGroupSelect = document.getElementById('secondaryStartGroupSelect');
             UIElements.toggleSecondaryStaffInfoButton = document.getElementById('toggleSecondaryStaffInfoButton');
-            UIElements.exportPrimaryScheduleButton = document.getElementById('exportPrimaryScheduleButton'); // On main page
+            UIElements.exportPrimaryScheduleButton = document.getElementById('exportPrimaryScheduleButton');
             UIElements.exportSecondaryScheduleButton = document.getElementById('exportSecondaryScheduleButton');
             UIElements.primarySchedulePanel = document.getElementById('primary-schedule-panel');
             UIElements.secondarySchedulePanel = document.getElementById('secondary-schedule-panel');
-            // Buttons for save/clear are inside the management modal now, so IDs might need to be unique if also kept outside
-            UIElements.savePrimaryScheduleButton = document.getElementById('savePrimaryScheduleButton'); // Inside management modal
-            UIElements.clearPrimaryScheduleButton = document.getElementById('clearPrimaryScheduleButton'); // Inside management modal
-
-            // New management modal elements
+            UIElements.savePrimaryScheduleButton = document.getElementById('savePrimaryScheduleButton');
+            UIElements.clearPrimaryScheduleButton = document.getElementById('clearPrimaryScheduleButton');
             UIElements.managementModal = document.getElementById('managementModal');
             UIElements.openManagementModalButton = document.getElementById('openManagementModalButton');
             UIElements.closeManagementModalButton = document.getElementById('closeManagementModalButton');
@@ -1103,9 +1096,8 @@
             if (!UIElements.primaryScheduleTabButton || !UIElements.secondaryScheduleTabButton ||
                 !UIElements.primarySchedulePanel || !UIElements.secondarySchedulePanel ||
                 !UIElements.primaryScheduleControls || !UIElements.secondaryScheduleControlsAboveCalendar ||
-                /* UIElements.primaryShiftLeftPanel no longer directly controlled here */
                 !UIElements.mainTitle) {
-                console.error("UI elements for tab switching are not cached.");
+                // console.error("UI elements for tab switching are not cached."); // User requested removal
                 return;
             }
             const isPrimary = viewName === 'primary';
@@ -1120,8 +1112,6 @@
             UIElements.secondaryScheduleTabButton.setAttribute('aria-selected', !isPrimary);
             UIElements.primaryScheduleControls.style.display = isPrimary ? 'block' : 'none';
             UIElements.secondaryScheduleControlsAboveCalendar.classList.toggle('hidden', isPrimary);
-            // UIElements.primaryShiftLeftPanel.style.display = isPrimary ? 'block' : 'none'; // This is now part of the modal
-
             if (!isPrimary) {
                 UI.updateSecondaryStaffInfoUI();
                 UI.updateSecondaryStartGroupSelectUI();
@@ -1141,8 +1131,8 @@
                 UIElements.toggleSecondaryStaffInfoButton.textContent = '顯示組別成員';
             }
         },
-        updateStaffListUI: () => { // Updates staff list inside management modal
-            if (!UIElements.staffListDiv) return; // staffListDiv is inside management modal
+        updateStaffListUI: () => {
+            if (!UIElements.staffListDiv) return;
             UIElements.staffListDiv.innerHTML = '';
             if (AppState.staffNames.length === 0) {
                 UIElements.staffListDiv.innerHTML = '<p class="text-sm text-slate-500">尚未新增任何主要班表人員。</p>';
@@ -1220,7 +1210,7 @@
                 select.value = "default";
             }
         },
-        updateStaffFilterUI: () => { // Updates filter on main page
+        updateStaffFilterUI: () => {
             if (!UIElements.staffFilterSelect) return;
             const currentFilterValue = UIElements.staffFilterSelect.value;
             UIElements.staffFilterSelect.innerHTML = '';
@@ -1274,7 +1264,7 @@
                     UIElements.clearAssignmentButton.classList.add('hidden');
                 }
             }
-            UIElements.assignmentModal.style.display = 'flex'; // Use flex for centering
+            UIElements.assignmentModal.style.display = 'flex';
             const firstButton = UIElements.modalStaffList.querySelector('button');
             if (firstButton) {
                 firstButton.focus();
@@ -1308,9 +1298,16 @@
             }
         },
         openAutoScheduleConfirmModal: (defaults = {}) => {
-            const { autoScheduleConfirmModal, autoScheduleConfirmMessage, confirmAutoScheduleButton, startMonThuSelect, startFriSelect, startWeekendSelect } = UIElements;
+            const autoScheduleConfirmModal = UIElements.autoScheduleConfirmModal;
+            const autoScheduleConfirmMessage = UIElements.autoScheduleConfirmMessage;
+            const confirmAutoScheduleButton = UIElements.confirmAutoScheduleButton;
+            const startMonThuSelect = UIElements.startMonThuSelect;
+            const startFriSelect = UIElements.startFriSelect;
+            const startWeekendSelect = UIElements.startWeekendSelect;
+
             if (!autoScheduleConfirmModal || !autoScheduleConfirmMessage || !confirmAutoScheduleButton || !startMonThuSelect || !startFriSelect || !startWeekendSelect) return;
-            autoScheduleConfirmMessage.textContent = `您確定要為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生初步主要班表嗎？\n這將會覆蓋本月現有的每日主要班表排班（國定假日將不會被自動排班）。`;
+
+            autoScheduleConfirmMessage.textContent = `您確定要為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生初步主要班表嗎？\n這將會覆蓋本月現有的每日主要班表排班。國定假日將依排班邏輯排入。`;
             [startMonThuSelect, startFriSelect, startWeekendSelect].forEach(select => {
                 select.innerHTML = '';
                 const defaultOption = document.createElement('option');
@@ -1329,15 +1326,14 @@
             if (defaults.monThu) startMonThuSelect.value = defaults.monThu;
             if (defaults.fri) startFriSelect.value = defaults.fri;
             if (defaults.weekend) startWeekendSelect.value = defaults.weekend;
-            autoScheduleConfirmModal.style.display = 'flex'; // Use flex for centering
+            autoScheduleConfirmModal.style.display = 'flex';
             startMonThuSelect.focus();
         },
         closeAutoScheduleConfirmModal: () => {
             if (UIElements.autoScheduleConfirmModal) UIElements.autoScheduleConfirmModal.style.display = 'none';
         },
-        // New functions for management modal
         openManagementModal: () => {
-            if (UIElements.managementModal) UIElements.managementModal.style.display = 'flex'; // Use flex for centering
+            if (UIElements.managementModal) UIElements.managementModal.style.display = 'flex';
         },
         closeManagementModal: () => {
             if (UIElements.managementModal) UIElements.managementModal.style.display = 'none';
@@ -1477,7 +1473,7 @@
             Utils.showCustomAlert("正在自動產生主要班表...", "loading", 0);
             const currentMonthPrefix = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
             for (const dateKey in AppState.shifts) {
-                if (dateKey.startsWith(currentMonthPrefix) && !AppState.holidays[dateKey]) {
+                if (dateKey.startsWith(currentMonthPrefix)) {
                     delete AppState.shifts[dateKey];
                 }
             }
@@ -1489,14 +1485,12 @@
                 startMonThuName, startFriName, startWeekendName
             );
             for (const dateStr in newShifts) {
-                 if (!AppState.holidays[dateStr]) {
-                    AppState.shifts[dateStr] = newShifts[dateStr];
-                 }
+                AppState.shifts[dateStr] = newShifts[dateStr];
             }
             DataStorage.saveDataForCurrentMonth();
             Calendar.render();
             Utils.hideCustomAlert();
-            Utils.showCustomAlert(`已為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生主要班表（國定假日未排班）。`, "success");
+            Utils.showCustomAlert(`已為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生主要班表。國定假日已依排班邏輯排入。`, "success");
         },
         generateBasicRoundRobin: (year, month_0_indexed, staffList, startMonThuName = "", startFriName = "", startWeekendName = "") => {
             const newShifts = {};
@@ -1508,11 +1502,12 @@
             if (startFriName && staffList.includes(startFriName)) friStaffIndex = staffList.indexOf(startFriName);
             let weekendStaffIndex = 0;
             if (startWeekendName && staffList.includes(startWeekendName)) weekendStaffIndex = staffList.indexOf(startWeekendName);
+
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                if (AppState.holidays[dateStr]) continue;
                 const dayOfWeek = new Date(year, month_0_indexed, day).getDay();
                 if (newShifts[dateStr]) continue;
+
                 if (dayOfWeek >= 1 && dayOfWeek <= 4) {
                     newShifts[dateStr] = staffList[monThuStaffIndex];
                     monThuStaffIndex = (monThuStaffIndex + 1) % staffList.length;
@@ -1525,11 +1520,13 @@
                     if (day + 1 <= daysInMonth) {
                         const sundayDateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day + 1).padStart(2, '0')}`;
                         const nextDayOfWeek = new Date(year, month_0_indexed, day + 1).getDay();
-                        if (nextDayOfWeek === 0 && !AppState.holidays[sundayDateStr]) newShifts[sundayDateStr] = assignedPerson;
+                        if (nextDayOfWeek === 0) {
+                             newShifts[sundayDateStr] = assignedPerson;
+                        }
                     }
                     weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
                 } else if (dayOfWeek === 0) {
-                    if (!newShifts[dateStr] && !AppState.holidays[dateStr]) {
+                    if (!newShifts[dateStr]) {
                         newShifts[dateStr] = staffList[weekendStaffIndex];
                         weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
                     }
@@ -1552,7 +1549,6 @@
             const daysInCurrentMonth = new Date(currentYear, currentMonth_0_indexed + 1, 0).getDate();
             for (let day = daysInCurrentMonth; day >= 1; day--) {
                 const dateStr = `${currentYear}-${String(currentMonth_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                if (AppState.holidays[dateStr]) continue;
                 const dayOfWeek = new Date(currentYear, currentMonth_0_indexed, day).getDay();
                 const assignedPerson = AppState.shifts[dateStr];
                 if (assignedPerson) {
@@ -1585,7 +1581,7 @@
             DataStorage.loadDataForCurrentMonth();
             const nextMonthPrefix = `${nextMonthYear}-${String(nextMonth_0_indexed + 1).padStart(2, '0')}`;
             for (const dateKey in AppState.shifts) {
-                if (dateKey.startsWith(nextMonthPrefix) && !AppState.holidays[dateKey]) {
+                if (dateKey.startsWith(nextMonthPrefix)) {
                     delete AppState.shifts[dateKey];
                 }
             }
@@ -1604,7 +1600,7 @@
                 finalStartMonThu, finalStartFri, finalStartWeekend
             );
             for (const dateStr in newShifts) {
-                if(!AppState.holidays[dateStr]) AppState.shifts[dateStr] = newShifts[dateStr];
+                AppState.shifts[dateStr] = newShifts[dateStr];
             }
             DataStorage.saveDataForCurrentMonth();
             UI.setActiveView('primary');
@@ -1614,7 +1610,7 @@
             Calendar.render();
             SecondaryScheduler.ensureScheduleForCurrentMonth();
             Utils.hideCustomAlert();
-            Utils.showCustomAlert(`已自動預排 ${nextMonthYear}年 ${nextMonth_0_indexed + 1}月 的主要班表（國定假日未排班）。`, "success");
+            Utils.showCustomAlert(`已自動預排 ${nextMonthYear}年 ${nextMonth_0_indexed + 1}月 的主要班表。國定假日已依排班邏輯排入。`, "success");
         }
     };
 
@@ -1622,12 +1618,11 @@
         UI.cacheDOMElements();
         DataStorage.loadDataForCurrentMonth();
         SecondaryScheduler.ensureScheduleForCurrentMonth();
-        UI.updateStaffListUI(); // Initialize staff list in (now hidden) modal
-        UI.updateStaffFilterUI(); // Initialize filter on main page
+        UI.updateStaffListUI();
+        UI.updateStaffFilterUI();
         UI.updateSecondaryStartGroupSelectUI();
-        UI.setActiveView(AppState.activeView); // This also calls Calendar.render()
+        UI.setActiveView(AppState.activeView);
 
-        // Event Listeners
         if (UIElements.saveNotesButton) {
             UIElements.saveNotesButton.addEventListener('click', () => {
                 if (UIElements.scheduleNotesTextarea) AppState.notes = UIElements.scheduleNotesTextarea.value;
@@ -1666,31 +1661,26 @@
         if (UIElements.toggleSecondaryStaffInfoButton) {
             UIElements.toggleSecondaryStaffInfoButton.addEventListener('click', UI.toggleSecondaryStaffInfo);
         }
-
-        // Management Modal Listeners
         if (UIElements.openManagementModalButton) {
             UIElements.openManagementModalButton.addEventListener('click', UI.openManagementModal);
         }
         if (UIElements.closeManagementModalButton) {
             UIElements.closeManagementModalButton.addEventListener('click', UI.closeManagementModal);
         }
-
-        // Save and Clear buttons (now inside management modal, ensure IDs are correct or use the ones from UIElements)
-        if (UIElements.savePrimaryScheduleButton) { // This ID is now for the button inside the modal
+        if (UIElements.savePrimaryScheduleButton) {
             UIElements.savePrimaryScheduleButton.addEventListener('click', () => {
-                if (UIElements.scheduleNotesTextarea && AppState.activeView === 'primary') { // Notes are on main page
+                if (UIElements.scheduleNotesTextarea && AppState.activeView === 'primary') {
                     AppState.notes = UIElements.scheduleNotesTextarea.value;
                 }
                 DataStorage.saveDataForCurrentMonth();
                 Utils.showCustomAlert("主要班表資料已儲存。", "success");
-                UI.closeManagementModal(); // Optionally close modal after save
+                UI.closeManagementModal();
             });
         }
-        if (UIElements.clearPrimaryScheduleButton) { // This ID is for the button inside the modal
+        if (UIElements.clearPrimaryScheduleButton) {
             UIElements.clearPrimaryScheduleButton.addEventListener('click', () => {
                 if (confirm(`您確定要清除 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 的所有主要班表資料和備註嗎？此操作無法復原。`)) {
                     DataStorage.clearCurrentMonthPrimarySchedule();
-                    // UI.closeManagementModal(); // Optionally close modal after clear
                 }
             });
         }
@@ -1711,3 +1701,5 @@
     </script>
 </body>
 </html>
+```
+®️ Jean Giono 2025

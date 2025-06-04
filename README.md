@@ -1,1 +1,1 @@
-# Book-tool
+# shift Copyright © Jean Giono

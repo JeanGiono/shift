@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHIFT TOOL v5.0</title>
+    <title>SHIFT TOOL v5.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
@@ -23,13 +23,15 @@
             background-color: #f0f9ff;
         }
         .assigned-person {
-            font-size: 0.75rem;
-            padding: 3px 5px;
-            border-radius: 4px;
-            display: block;
-            text-align: center;
-            margin-top: 2px;
-            min-width: 24px;
+            font-size: 1.1rem; /* Larger font for single name */
+            font-weight: 600;
+            padding: 2px 4px;
+            border-radius: 9999px; /* Pill shape */
+            min-width: 32px;
+            min-height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         .assigned-group {
             font-weight: 600;
@@ -93,7 +95,8 @@
             background-color: #f8f9fa !important;
             opacity: 0.7;
         }
-        .calendar-day.filtered-out .assigned-person,
+        .calendar-day.filtered-out .primary-shift-person,
+        .calendar-day.filtered-out .sentry-shift-note,
         .calendar-day.filtered-out .holiday-info {
              visibility: hidden;
         }
@@ -116,16 +119,18 @@
         .hidden {
             display: none !important;
         }
-        .holiday-info {
-            font-size: 0.7rem;
-            line-height: 1;
-            word-break: break-all;
-        }
         .day-content-wrapper {
             flex-grow: 1;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+        }
+        .primary-shift-person, .sentry-shift-note, .holiday-info {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 28px;
         }
         #managementModal .modal-content {
             width: 95%;
@@ -407,7 +412,7 @@
             if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
         },
         getLocalStorageKey: (dataType) => {
-            const version = "v5.0_integrated_sentry";
+            const version = "v5.1_integrated_layout";
             if (['holidays_all', 'secondary_start_groups', 'sentry_shifts', 'sentry_initial_condition'].includes(dataType)){
                 return `shiftSchedule_${version}_${dataType}`;
             }
@@ -849,8 +854,7 @@
                 const currentDayOfWeek = currentDate.getDay();
                 const isWeekend = currentDayOfWeek === 0 || currentDayOfWeek === 6;
                 const holidayName = AppState.holidays[dateStr];
-                const isVisuallySpecialDay = holidayName || isWeekend;
-
+                
                 dayCell.className = 'calendar-day border border-slate-200 p-2 rounded-md';
                 if (AppState.activeView === 'primary') dayCell.classList.add('cursor-pointer');
                 
@@ -859,21 +863,27 @@
                 dayNumber.className = 'text-sm font-medium self-start';
                 dayNumber.textContent = day;
                 
-                if (isVisuallySpecialDay && !dayCell.classList.contains('filtered-out')) {
+                if ((isWeekend || holidayName) && !dayCell.classList.contains('filtered-out')) {
                     dayNumber.classList.add('font-bold', 'text-red-700');
                 }
                 dayCell.appendChild(dayNumber);
 
                 const contentWrapper = document.createElement('div');
                 contentWrapper.className = 'day-content-wrapper';
-                const assignmentsContainer = document.createElement('div');
-                assignmentsContainer.className = 'flex-grow flex flex-col items-center justify-center';
-
+                
                 if (AppState.activeView === 'primary') {
                     dayCell.addEventListener('click', () => UI.openAssignmentModal(dateStr));
+
+                    const primaryShiftCell = document.createElement('div');
+                    primaryShiftCell.className = 'primary-shift-person';
+                    const sentryCell = document.createElement('div');
+                    sentryCell.className = 'sentry-shift-note text-rose-700';
+                    const holidayCell = document.createElement('div');
+                    holidayCell.className = 'holiday-info text-red-600 font-semibold';
+                    
                     const primaryShiftPersonName = AppState.shifts[dateStr];
                     if (primaryShiftPersonName) {
-                        if (AppState.selectedStaffForFilter === "ALL" || AppState.selectedStaffForFilter === primaryShiftPersonName) {
+                         if (AppState.selectedStaffForFilter === "ALL" || AppState.selectedStaffForFilter === primaryShiftPersonName) {
                             const personColor = AppState.staffColors[primaryShiftPersonName] || { background: '#E0E0E0', text: '#000000' };
                             const personSpan = document.createElement('span');
                             personSpan.className = 'assigned-person';
@@ -882,22 +892,27 @@
                             personSpan.style.backgroundColor = personColor.background;
                             personSpan.style.color = personColor.text;
                             personSpan.style.border = `1px solid ${personColor.text}`;
-                            assignmentsContainer.appendChild(personSpan);
-                            dayCell.classList.remove('filtered-out');
+                            primaryShiftCell.appendChild(personSpan);
                         } else {
                             dayCell.classList.add('filtered-out');
                         }
                     } else {
                         if (AppState.selectedStaffForFilter !== "ALL") dayCell.classList.add('filtered-out');
                     }
-                    
+
                     const sentryShiftTime = AppState.sentrySchedule.shifts[dateStr];
                     if (sentryShiftTime && sentryShiftTime !== AppState.sentrySchedule.config.restDayLabel) {
-                        const sentryNoteDiv = document.createElement('div');
-                        sentryNoteDiv.className = 'text-xs text-center text-rose-700 mt-2 flex items-center justify-center';
-                        sentryNoteDiv.innerHTML = `<i class="fas fa-search-location fa-fw mr-1"></i> ${sentryShiftTime.substring(0, 2)}`;
-                        assignmentsContainer.appendChild(sentryNoteDiv);
+                        sentryCell.innerHTML = `<i class="fas fa-search-location fa-fw mr-1"></i> ${sentryShiftTime.substring(0, 2)}`;
                     }
+                    
+                    if(holidayName){
+                        holidayCell.textContent = holidayName.charAt(0);
+                        holidayCell.title = holidayName;
+                    }
+
+                    contentWrapper.appendChild(primaryShiftCell);
+                    contentWrapper.appendChild(sentryCell);
+                    contentWrapper.appendChild(holidayCell);
 
                 } else if (AppState.activeView === 'secondary') {
                     if (isWeekend && !holidayName) {
@@ -911,21 +926,12 @@
                                 groupSpan.style.backgroundColor = groupInfo.color.background;
                                 groupSpan.style.color = groupInfo.color.text;
                                 groupSpan.style.borderColor = groupInfo.color.text;
-                                assignmentsContainer.appendChild(groupSpan);
+                                contentWrapper.appendChild(groupSpan);
                             }
                         }
                     }
                 }
                 
-                contentWrapper.appendChild(assignmentsContainer);
-
-                if (holidayName) {
-                    const holidaySpan = document.createElement('div');
-                    holidaySpan.textContent = holidayName.charAt(0);
-                    holidaySpan.title = holidayName;
-                    holidaySpan.className = 'holiday-info text-red-600 font-semibold text-center pt-1';
-                    contentWrapper.appendChild(holidaySpan);
-                }
                 dayCell.appendChild(contentWrapper);
                 UIElements.calendarGrid.appendChild(dayCell);
             }
@@ -1778,8 +1784,3 @@
 <div style="text-align: center;">
  Copyright © Jean Giono 
 </div>
-
-
-
-
-

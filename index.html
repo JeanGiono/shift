@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHIFT TOOL v6.0</title>
+    <title>SHIFT TOOL v6.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
@@ -23,14 +23,13 @@
         .calendar-day:hover {
             background-color: #f0f9ff;
         }
-        /* ADDED: Styles for today and selected day highlighting */
         .today {
             border-width: 2px;
-            border-color: #c084fc; /* Tailwind's purple-400 */
+            border-color: #c084fc; 
         }
         .selected-day {
-            background-color: #dbeafe !important; /* Tailwind's blue-100 */
-            border-color: #60a5fa !important; /* Tailwind's blue-400 */
+            background-color: #dbeafe !important;
+            border-color: #60a5fa !important;
         }
         .assigned-person {
             font-size: 1.1rem;
@@ -92,10 +91,6 @@
         .close-button:hover, .close-button:focus {
             color: black; text-decoration: none; cursor: pointer;
         }
-        .staff-list-modal::-webkit-scrollbar, .modal-content::-webkit-scrollbar { width: 8px; }
-        .staff-list-modal::-webkit-scrollbar-track, .modal-content::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
-        .staff-list-modal::-webkit-scrollbar-thumb, .modal-content::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; }
-        .staff-list-modal::-webkit-scrollbar-thumb:hover, .modal-content::-webkit-scrollbar-thumb:hover { background: #555; }
         .custom-alert {
             display: none; position: fixed; top: 20px; left: 50%;
             transform: translateX(-50%); padding: 15px;
@@ -154,6 +149,29 @@
             align-items: center;
             justify-content: center;
             min-height: 28px;
+        }
+
+        /* ADDED: Print-specific styles */
+        @media print {
+            body > header, .modal, #primaryScheduleControls, #secondaryScheduleControlsAboveCalendar, body > main > header, body > div[style*="text-align: center"] {
+                display: none !important;
+            }
+            body, main.container, section.bg-white {
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                max-width: 100% !important;
+            }
+            .calendar-day {
+                min-height: 90px;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            #monthYearDisplay {
+                padding-top: 1rem;
+                padding-bottom: 1rem;
+            }
         }
     </style>
 </head>
@@ -284,9 +302,11 @@
                  <h2 id="data-management-section-title" class="text-xl font-bold text-slate-800 mb-4 pb-2 border-b-2 border-slate-200">資料管理</h2>
 
                 <section aria-labelledby="primary-schedule-actions-title-modal">
-                    <h3 id="primary-schedule-actions-title-modal" class="text-lg font-semibold mb-3 text-slate-700">儲存與清除</h3>
+                    <h3 id="primary-schedule-actions-title-modal" class="text-lg font-semibold mb-3 text-slate-700">儲存、列印與清除</h3>
                     <div class="space-y-2">
                         <button id="savePrimaryScheduleButton" type="button" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">儲存所有變更</button>
+                        <!-- ADDED: Print button -->
+                        <button id="printScheduleButton" type="button" class="w-full bg-gray-500 text-white py-2 px-4 rounded-md hover:bg-gray-600 transition-colors flex items-center justify-center"><i class="fas fa-print mr-2"></i>友善列印本月班表</button>
                         <button id="clearPrimaryScheduleButton" type="button" class="w-full bg-red-600 text-white py-2 px-4 rounded-md hover:bg-red-700 transition-colors">清除本月主要班表</button>
                     </div>
                 </section>
@@ -432,6 +452,7 @@
         sentryStartTime: null,
         confirmModal: null, confirmModalTitle: null, confirmModalMessage: null,
         acceptConfirmButton: null, cancelConfirmButton: null, closeConfirmModalButton: null,
+        printScheduleButton: null, // ADDED
     };
 
     const Utils = {
@@ -449,7 +470,7 @@
             if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
         },
         getLocalStorageKey: (dataType) => {
-            const version = "v6.0_highlighting"; // Updated version key
+            const version = "v6.2_print_feature"; // Updated version key
             if (['holidays_all', 'secondary_shifts', 'sentry_shifts', 'sentry_initial_condition'].includes(dataType)){
                 return `shiftSchedule_${version}_${dataType}`;
             }
@@ -822,7 +843,6 @@
             
             SecondaryScheduler.ensureScheduleForCurrentMonth();
 
-            // ADDED: Get today's date string for highlighting
             const today = new Date();
             const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             
@@ -851,11 +871,10 @@
                 const isWeekend = currentDayOfWeek === 0 || currentDayOfWeek === 6;
                 const holidayName = AppState.holidays[dateStr];
                 
-                dayCell.className = 'calendar-day p-2 rounded-md'; // Base class
+                dayCell.className = 'calendar-day p-2 rounded-md';
                 if (AppState.activeView === 'primary') dayCell.classList.add('cursor-pointer');
                 dayCell.dataset.date = dateStr;
 
-                // ADDED: Highlighting logic for today and selected day
                 if (dateStr === todayStr) {
                     dayCell.classList.add('today');
                 }
@@ -1189,6 +1208,7 @@
             UIElements.acceptConfirmButton = document.getElementById('acceptConfirmButton');
             UIElements.cancelConfirmButton = document.getElementById('cancelConfirmButton');
             UIElements.closeConfirmModalButton = document.getElementById('closeConfirmModalButton');
+            UIElements.printScheduleButton = document.getElementById('printScheduleButton'); // ADDED
         },
         updateAllUI: () => {
             UI.updateStaffListUI();
@@ -1206,10 +1226,8 @@
                 primary: UIElements.primaryScheduleControls,
                 secondary: UIElements.secondaryScheduleControlsAboveCalendar,
             };
-            const titles = {
-                primary: "SHIFT TOOL",
-                secondary: "SHIFT TOOL (第二班表)",
-            }
+            
+            if(UIElements.mainTitle) UIElements.mainTitle.textContent = "SHIFT TOOL";
 
             for (const key in tabs) {
                 const isActive = key === viewName;
@@ -1218,7 +1236,6 @@
                 if(key !== 'primary' && panels[key]) panels[key].classList.toggle('hidden', !isActive);
             }
             if(panels['primary']) panels['primary'].style.display = viewName === 'primary' ? 'block' : 'none';
-            if(UIElements.mainTitle) UIElements.mainTitle.textContent = titles[viewName];
 
             if (viewName === 'secondary') {
                 UI.updateSecondaryStaffInfoUI();
@@ -1332,7 +1349,6 @@
                  AppState.selectedStaffForFilter = "ALL";
             }
         },
-        // MODIFIED: Added logic to handle .selected-day class
         openAssignmentModal: (dateStr) => {
             if (AppState.selectedDateForAssignment) {
                 const oldSelectedCell = UIElements.calendarGrid.querySelector(`[data-date="${AppState.selectedDateForAssignment}"]`);
@@ -1384,7 +1400,6 @@
                  UIElements.assignmentModal.querySelector('.close-button').focus();
             }
         },
-        // MODIFIED: Added logic to remove .selected-day class
         closeAssignmentModal: () => {
             if (AppState.selectedDateForAssignment) {
                 const selectedCell = UIElements.calendarGrid.querySelector(`[data-date="${AppState.selectedDateForAssignment}"]`);
@@ -1765,6 +1780,13 @@
                         UI.closeManagementModal(); 
                     }
                 );
+            });
+        }
+
+        // ADDED: Print button listener
+        if (UIElements.printScheduleButton) {
+            UIElements.printScheduleButton.addEventListener('click', () => {
+                window.print();
             });
         }
 

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHIFT TOOL v6.2</title>
+    <title>排班工具 v8.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
@@ -151,7 +151,6 @@
             min-height: 28px;
         }
 
-        /* ADDED: Print-specific styles */
         @media print {
             body > header, .modal, #primaryScheduleControls, #secondaryScheduleControlsAboveCalendar, body > main > header, body > div[style*="text-align: center"] {
                 display: none !important;
@@ -184,7 +183,7 @@
     <main class="container mx-auto p-4">
         <header class="mb-6 p-4 bg-white shadow-md rounded-lg">
             <div class="flex justify-between items-center">
-                <h1 id="mainTitle" class="text-3xl font-bold text-sky-700">SHIFT TOOL</h1>
+                <h1 id="mainTitle" class="text-3xl font-bold text-sky-700">排班工具</h1>
                 <button id="openManagementModalButton" type="button" class="bg-slate-600 text-white py-2 px-4 rounded-md hover:bg-slate-700 transition-colors flex items-center">
                     <i class="fas fa-cog mr-2"></i>管理設定
                 </button>
@@ -338,16 +337,16 @@
             <p id="autoScheduleConfirmMessage" class="text-slate-600 mb-4"></p>
             <form id="autoScheduleForm" onsubmit="event.preventDefault(); AutoScheduler.proceedWithAutoSchedule(); UI.closeAutoScheduleConfirmModal();">
                 <div class="mb-3">
-                    <label for="startMonThuSelect" class="block text-sm font-medium text-slate-700 mb-1">週一至週四起始人員:</label>
-                    <select id="startMonThuSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                    <label for="startWeekdaySelect" class="block text-sm font-medium text-slate-700 mb-1">〔平日〕起始人員 (週一至週四):</label>
+                    <select id="startWeekdaySelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
                 </div>
                 <div class="mb-3">
-                    <label for="startFriSelect" class="block text-sm font-medium text-slate-700 mb-1">週五起始人員:</label>
-                    <select id="startFriSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                    <label for="startPreHolidaySelect" class="block text-sm font-medium text-slate-700 mb-1">〔假日前一日〕起始人員 (週五):</label>
+                    <select id="startPreHolidaySelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
                 </div>
                 <div class="mb-4">
-                    <label for="startWeekendSelect" class="block text-sm font-medium text-slate-700 mb-1">週末起始人員:</label>
-                    <select id="startWeekendSelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
+                    <label for="startHolidaySelect" class="block text-sm font-medium text-slate-700 mb-1">〔假日〕起始人員 (週六、日):</label>
+                    <select id="startHolidaySelect" class="w-full p-2 border border-slate-300 rounded-md focus:ring-sky-500 focus:border-sky-500"></select>
                 </div>
                 <div class="flex justify-end space-x-3 mt-4">
                     <button type="button" onclick="UI.closeAutoScheduleConfirmModal()" class="bg-slate-300 hover:bg-slate-400 text-slate-800 py-2 px-4 rounded-md transition-colors">取消</button>
@@ -372,11 +371,12 @@
     </div>
     
     <script>
+    // 主要應用程式狀態管理物件
     let AppState = {
         currentYear: new Date().getFullYear(),
         currentMonth: new Date().getMonth(),
         activeView: 'primary',
-        defaultStaffNames: ["學翰", "志龍", "國維", "靖興", "欣諭", "Bao融", "耀恩"],
+        defaultStaffNames: ["學翰", "志龍", "國維", "靖興", "宜君", "欣諭", "Bao融", "耀恩"],
         staffNames: [],
         shifts: {},
         notes: '',
@@ -398,8 +398,8 @@
         sentrySchedule: {
             shifts: {},
             initialCondition: {
-                date: "2025-06-01",
-                time: "02:00-04:00"
+                date: "2025-10-01",
+                time: "18:00-20:00"
             },
             config: {
                 resetTime: "06:00-08:00",
@@ -431,7 +431,7 @@
         customAlertMessageBox: null,
         staffFilterSelect: null,
         autoScheduleConfirmModal: null, autoScheduleConfirmMessage: null, confirmAutoScheduleButton: null,
-        startMonThuSelect: null, startFriSelect: null, startWeekendSelect: null,
+        startWeekdaySelect: null, startPreHolidaySelect: null, startHolidaySelect: null,
         primaryScheduleTabButton: null, secondaryScheduleTabButton: null,
         primaryScheduleControls: null,
         secondaryScheduleControlsAboveCalendar: null,
@@ -448,7 +448,7 @@
         sentryStartTime: null,
         confirmModal: null, confirmModalTitle: null, confirmModalMessage: null,
         acceptConfirmButton: null, cancelConfirmButton: null, closeConfirmModalButton: null,
-        printScheduleButton: null, // ADDED
+        printScheduleButton: null,
     };
 
     const Utils = {
@@ -466,7 +466,7 @@
             if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
         },
         getLocalStorageKey: (dataType) => {
-            const version = "v6.2_print_feature"; // Updated version key
+            const version = "v8.3_weekday_holiday_rule"; // UPDATED: Version key for new logic
             if (['holidays_all', 'secondary_shifts', 'sentry_shifts', 'sentry_initial_condition'].includes(dataType)){
                 return `shiftSchedule_${version}_${dataType}`;
             }
@@ -1180,9 +1180,9 @@
             UIElements.autoScheduleConfirmModal = document.getElementById('autoScheduleConfirmModal');
             UIElements.autoScheduleConfirmMessage = document.getElementById('autoScheduleConfirmMessage');
             UIElements.confirmAutoScheduleButton = document.getElementById('confirmAutoScheduleButton');
-            UIElements.startMonThuSelect = document.getElementById('startMonThuSelect');
-            UIElements.startFriSelect = document.getElementById('startFriSelect');
-            UIElements.startWeekendSelect = document.getElementById('startWeekendSelect');
+            UIElements.startWeekdaySelect = document.getElementById('startWeekdaySelect');
+            UIElements.startPreHolidaySelect = document.getElementById('startPreHolidaySelect');
+            UIElements.startHolidaySelect = document.getElementById('startHolidaySelect');
             UIElements.primaryScheduleTabButton = document.getElementById('primaryScheduleTabButton');
             UIElements.secondaryScheduleTabButton = document.getElementById('secondaryScheduleTabButton');
             UIElements.primaryScheduleControls = document.getElementById('primaryScheduleControls');
@@ -1204,7 +1204,7 @@
             UIElements.acceptConfirmButton = document.getElementById('acceptConfirmButton');
             UIElements.cancelConfirmButton = document.getElementById('cancelConfirmButton');
             UIElements.closeConfirmModalButton = document.getElementById('closeConfirmModalButton');
-            UIElements.printScheduleButton = document.getElementById('printScheduleButton'); // ADDED
+            UIElements.printScheduleButton = document.getElementById('printScheduleButton');
         },
         updateAllUI: () => {
             UI.updateStaffListUI();
@@ -1223,7 +1223,7 @@
                 secondary: UIElements.secondaryScheduleControlsAboveCalendar,
             };
             
-            if(UIElements.mainTitle) UIElements.mainTitle.textContent = "SHIFT TOOL";
+            if(UIElements.mainTitle) UIElements.mainTitle.textContent = "排班工具";
 
             for (const key in tabs) {
                 const isActive = key === viewName;
@@ -1427,14 +1427,14 @@
             const autoScheduleConfirmModal = UIElements.autoScheduleConfirmModal;
             const autoScheduleConfirmMessage = UIElements.autoScheduleConfirmMessage;
             const confirmAutoScheduleButton = UIElements.confirmAutoScheduleButton;
-            const startMonThuSelect = UIElements.startMonThuSelect;
-            const startFriSelect = UIElements.startFriSelect;
-            const startWeekendSelect = UIElements.startWeekendSelect;
+            const startWeekdaySelect = UIElements.startWeekdaySelect;
+            const startPreHolidaySelect = UIElements.startPreHolidaySelect;
+            const startHolidaySelect = UIElements.startHolidaySelect;
 
-            if (!autoScheduleConfirmModal || !autoScheduleConfirmMessage || !confirmAutoScheduleButton || !startMonThuSelect || !startFriSelect || !startWeekendSelect) return;
+            if (!autoScheduleConfirmModal || !autoScheduleConfirmMessage || !confirmAutoScheduleButton || !startWeekdaySelect || !startPreHolidaySelect || !startHolidaySelect) return;
 
-            autoScheduleConfirmMessage.textContent = `您確定要為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生初步主要班表嗎？\n這將會覆蓋本月現有的每日主要班表排班。國定假日將依排班邏輯排入。`;
-            [startMonThuSelect, startFriSelect, startWeekendSelect].forEach(select => {
+            autoScheduleConfirmMessage.textContent = `您確定要為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生初步主要班表嗎？\n這將會覆蓋本月現有的每日主要班表排班，並依照三種獨立的輪替順序進行。`;
+            [startWeekdaySelect, startPreHolidaySelect, startHolidaySelect].forEach(select => {
                 select.innerHTML = '';
                 const defaultOption = document.createElement('option');
                 defaultOption.value = "";
@@ -1445,15 +1445,15 @@
                 const option = document.createElement('option');
                 option.value = name;
                 option.textContent = name;
-                startMonThuSelect.appendChild(option.cloneNode(true));
-                startFriSelect.appendChild(option.cloneNode(true));
-                startWeekendSelect.appendChild(option.cloneNode(true));
+                startWeekdaySelect.appendChild(option.cloneNode(true));
+                startPreHolidaySelect.appendChild(option.cloneNode(true));
+                startHolidaySelect.appendChild(option.cloneNode(true));
             });
-            if (defaults.monThu) startMonThuSelect.value = defaults.monThu;
-            if (defaults.fri) startFriSelect.value = defaults.fri;
-            if (defaults.weekend) startWeekendSelect.value = defaults.weekend;
+            if (defaults.weekday) startWeekdaySelect.value = defaults.weekday;
+            if (defaults.preHoliday) startPreHolidaySelect.value = defaults.preHoliday;
+            if (defaults.holiday) startHolidaySelect.value = defaults.holiday;
             autoScheduleConfirmModal.style.display = 'flex';
-            startMonThuSelect.focus();
+            startWeekdaySelect.focus();
         },
         closeAutoScheduleConfirmModal: () => {
             if (UIElements.autoScheduleConfirmModal) UIElements.autoScheduleConfirmModal.style.display = 'none';
@@ -1582,9 +1582,7 @@
                 Utils.showCustomAlert("請先新增主要班表人員名單才能自動排班。", "info");
                 return;
             }
-            const currentMonthKey = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}`;
-            const defaults = AppState.defaultPrimaryScheduleStarters[currentMonthKey] || {};
-            UI.openAutoScheduleConfirmModal(defaults);
+            UI.openAutoScheduleConfirmModal();
         },
         proceedWithAutoSchedule: () => {
             Utils.showCustomAlert("正在自動產生主要班表...", "loading", 0);
@@ -1594,12 +1592,13 @@
                     delete AppState.shifts[dateKey];
                 }
             }
-            const startMonThuName = UIElements.startMonThuSelect ? UIElements.startMonThuSelect.value : "";
-            const startFriName = UIElements.startFriSelect ? UIElements.startFriSelect.value : "";
-            const startWeekendName = UIElements.startWeekendSelect ? UIElements.startWeekendSelect.value : "";
+            const startWeekdayName = UIElements.startWeekdaySelect ? UIElements.startWeekdaySelect.value : "";
+            const startPreHolidayName = UIElements.startPreHolidaySelect ? UIElements.startPreHolidaySelect.value : "";
+            const startHolidayName = UIElements.startHolidaySelect ? UIElements.startHolidaySelect.value : "";
+            
             const newShifts = AutoScheduler.generateBasicRoundRobin(
                 AppState.currentYear, AppState.currentMonth, AppState.staffNames,
-                startMonThuName, startFriName, startWeekendName
+                startWeekdayName, startPreHolidayName, startHolidayName
             );
             for (const dateStr in newShifts) {
                 AppState.shifts[dateStr] = newShifts[dateStr];
@@ -1607,50 +1606,51 @@
             DataStorage.saveData();
             Calendar.render();
             Utils.hideCustomAlert();
-            Utils.showCustomAlert(`已為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生主要班表。國定假日已依排班邏輯排入。`, "success");
+            Utils.showCustomAlert(`已為 ${AppState.currentYear}年 ${AppState.currentMonth + 1}月 自動產生主要班表。`, "success");
         },
-        generateBasicRoundRobin: (year, month_0_indexed, staffList, startMonThuName = "", startFriName = "", startWeekendName = "") => {
+        // REWRITTEN: New logic prioritizes day of the week over national holidays for scheduling type.
+        generateBasicRoundRobin: (year, month_0_indexed, staffList, startWeekdayName = "", startPreHolidayName = "", startHolidayName = "") => {
             const newShifts = {};
             if (!staffList || staffList.length === 0) return newShifts;
             const daysInMonth = new Date(year, month_0_indexed + 1, 0).getDate();
-            let monThuStaffIndex = 0;
-            if (startMonThuName && staffList.includes(startMonThuName)) monThuStaffIndex = staffList.indexOf(startMonThuName);
-            let friStaffIndex = 0;
-            if (startFriName && staffList.includes(startFriName)) friStaffIndex = staffList.indexOf(startFriName);
-            let weekendStaffIndex = 0;
-            if (startWeekendName && staffList.includes(startWeekendName)) weekendStaffIndex = staffList.indexOf(startWeekendName);
+
+            let weekdayIndex = 0;
+            if (startWeekdayName && staffList.includes(startWeekdayName)) weekdayIndex = staffList.indexOf(startWeekdayName);
+            
+            let preHolidayIndex = 0;
+            if (startPreHolidayName && staffList.includes(startPreHolidayName)) preHolidayIndex = staffList.indexOf(startPreHolidayName);
+
+            let holidayIndex = 0;
+            if (startHolidayName && staffList.includes(startHolidayName)) holidayIndex = staffList.indexOf(startHolidayName);
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const dayOfWeek = new Date(year, month_0_indexed, day).getDay();
+                
                 if (newShifts[dateStr]) continue;
 
-                if (dayOfWeek >= 1 && dayOfWeek <= 4) {
-                    newShifts[dateStr] = staffList[monThuStaffIndex];
-                    monThuStaffIndex = (monThuStaffIndex + 1) % staffList.length;
-                } else if (dayOfWeek === 5) {
-                    newShifts[dateStr] = staffList[friStaffIndex];
-                    friStaffIndex = (friStaffIndex + 1) % staffList.length;
-                } else if (dayOfWeek === 6) {
-                    const assignedPerson = staffList[weekendStaffIndex];
-                    newShifts[dateStr] = assignedPerson;
-                    if (day + 1 <= daysInMonth) {
-                        const sundayDateStr = `${year}-${String(month_0_indexed + 1).padStart(2, '0')}-${String(day + 1).padStart(2, '0')}`;
-                        const nextDayOfWeek = new Date(year, month_0_indexed, day + 1).getDay();
-                        if (nextDayOfWeek === 0) {
-                             newShifts[sundayDateStr] = assignedPerson;
+                if (dayOfWeek >= 1 && dayOfWeek <= 4) { // Monday to Thursday is always [平日]
+                    newShifts[dateStr] = staffList[weekdayIndex];
+                    weekdayIndex = (weekdayIndex + 1) % staffList.length;
+                } else if (dayOfWeek === 5) { // Friday is always [假日前一日]
+                    newShifts[dateStr] = staffList[preHolidayIndex];
+                    preHolidayIndex = (preHolidayIndex + 1) % staffList.length;
+                } else { // Saturday (6) or Sunday (0) are always [假日]
+                    if (dayOfWeek === 0) { 
+                        const yesterday = new Date(year, month_0_indexed, day - 1);
+                        const yesterdayStr = Utils.formatDateToKey(new Date(Date.UTC(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate())));
+                        if (yesterday.getDay() === 6 && newShifts[yesterdayStr]) {
+                            newShifts[dateStr] = newShifts[yesterdayStr];
+                            continue;
                         }
                     }
-                    weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
-                } else if (dayOfWeek === 0) {
-                    if (!newShifts[dateStr]) {
-                        newShifts[dateStr] = staffList[weekendStaffIndex];
-                        weekendStaffIndex = (weekendStaffIndex + 1) % staffList.length;
-                    }
+                    newShifts[dateStr] = staffList[holidayIndex];
+                    holidayIndex = (holidayIndex + 1) % staffList.length;
                 }
             }
             return newShifts;
         },
+        // REWRITTEN: Logic to find last person in each rotation based on day of week.
         carryOverToNextMonth: () => {
             if (AppState.staffNames.length === 0) {
                 Utils.showCustomAlert("請先新增主要班表人員才能預排次月班表。", "info");
@@ -1660,29 +1660,40 @@
             const currentYear = AppState.currentYear;
             const currentMonth_0_indexed = AppState.currentMonth;
             const staffList = AppState.staffNames;
-            let lastMonThuStaff = "";
-            let lastFriStaff = "";
-            let lastWeekendStaff = "";
+
+            let lastWeekdayStaff = "";
+            let lastPreHolidayStaff = "";
+            let lastHolidayStaff = "";
+
             const daysInCurrentMonth = new Date(currentYear, currentMonth_0_indexed + 1, 0).getDate();
             for (let day = daysInCurrentMonth; day >= 1; day--) {
+                if (lastWeekdayStaff && lastPreHolidayStaff && lastHolidayStaff) break;
+
                 const dateStr = `${currentYear}-${String(currentMonth_0_indexed + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayOfWeek = new Date(currentYear, currentMonth_0_indexed, day).getDay();
                 const assignedPerson = AppState.shifts[dateStr];
-                if (assignedPerson) {
-                    if (!lastMonThuStaff && dayOfWeek >= 1 && dayOfWeek <= 4) lastMonThuStaff = assignedPerson;
-                    if (!lastFriStaff && dayOfWeek === 5) lastFriStaff = assignedPerson;
-                    if (!lastWeekendStaff && (dayOfWeek === 0 || dayOfWeek === 6)) lastWeekendStaff = assignedPerson;
+                if (!assignedPerson) continue;
+
+                const dayOfWeek = new Date(currentYear, currentMonth_0_indexed, day).getDay();
+
+                if (dayOfWeek >= 1 && dayOfWeek <= 4) { // Monday to Thursday
+                    if (!lastWeekdayStaff) lastWeekdayStaff = assignedPerson;
+                } else if (dayOfWeek === 5) { // Friday
+                    if (!lastPreHolidayStaff) lastPreHolidayStaff = assignedPerson;
+                } else { // Saturday or Sunday
+                    if (!lastHolidayStaff) lastHolidayStaff = assignedPerson;
                 }
-                if (lastMonThuStaff && lastFriStaff && lastWeekendStaff) break;
             }
+            
             const getNextStaff = (currentStaff) => {
                 if (!currentStaff || !staffList.includes(currentStaff)) return staffList[0] || "";
                 const currentIndex = staffList.indexOf(currentStaff);
                 return staffList[(currentIndex + 1) % staffList.length];
             };
-            const startNextMonThu = getNextStaff(lastMonThuStaff);
-            const startNextFri = getNextStaff(lastFriStaff);
-            const startNextWeekend = getNextStaff(lastWeekendStaff);
+
+            const startNextWeekday = getNextStaff(lastWeekdayStaff);
+            const startNextPreHoliday = getNextStaff(lastPreHolidayStaff);
+            const startNextHoliday = getNextStaff(lastHolidayStaff);
+
             DataStorage.saveData();
             let nextMonth_0_indexed = currentMonth_0_indexed + 1;
             let nextMonthYear = currentYear;
@@ -1693,35 +1704,29 @@
             AppState.currentYear = nextMonthYear;
             AppState.currentMonth = nextMonth_0_indexed;
             DataStorage.loadData();
+
             const nextMonthPrefix = `${nextMonthYear}-${String(nextMonth_0_indexed + 1).padStart(2, '0')}`;
             for (const dateKey in AppState.shifts) {
                 if (dateKey.startsWith(nextMonthPrefix)) {
                     delete AppState.shifts[dateKey];
                 }
             }
-            const nextMonthKey = `${nextMonthYear}-${String(nextMonth_0_indexed + 1).padStart(2, '0')}`;
-            const defaultsForNextMonth = AppState.defaultPrimaryScheduleStarters[nextMonthKey];
-            let finalStartMonThu = startNextMonThu;
-            let finalStartFri = startNextFri;
-            let finalStartWeekend = startNextWeekend;
-            if (defaultsForNextMonth) {
-                finalStartMonThu = defaultsForNextMonth.monThu || startNextMonThu;
-                finalStartFri = defaultsForNextMonth.fri || startNextFri;
-                finalStartWeekend = defaultsForNextMonth.weekend || startNextWeekend;
-            }
+
             const newShifts = AutoScheduler.generateBasicRoundRobin(
                 nextMonthYear, nextMonth_0_indexed, AppState.staffNames,
-                finalStartMonThu, finalStartFri, finalStartWeekend
+                startNextWeekday, startNextPreHoliday, startNextHoliday
             );
+            
             for (const dateStr in newShifts) {
                 AppState.shifts[dateStr] = newShifts[dateStr];
             }
+
             DataStorage.saveData();
             UI.setActiveView('primary');
             UI.updateAllUI();
             Calendar.render();
             Utils.hideCustomAlert();
-            Utils.showCustomAlert(`已自動預排 ${nextMonthYear}年 ${nextMonth_0_indexed + 1}月 的主要班表。國定假日已依排班邏輯排入。`, "success");
+            Utils.showCustomAlert(`已自動預排 ${nextMonthYear}年 ${nextMonth_0_indexed + 1}月 的主要班表。`, "success");
         }
     };
 
@@ -1759,7 +1764,7 @@
         if (UIElements.savePrimaryScheduleButton) {
             UIElements.savePrimaryScheduleButton.addEventListener('click', () => {
                 DataStorage.saveData();
-                Utils.showCustomAlert("主要班表資料已成功儲存。", "success");
+                Utils.showCustomAlert("所有資料已成功儲存。", "success");
                 UI.closeManagementModal();
             });
         }
@@ -1779,7 +1784,6 @@
             });
         }
 
-        // ADDED: Print button listener
         if (UIElements.printScheduleButton) {
             UIElements.printScheduleButton.addEventListener('click', () => {
                 window.print();
@@ -1811,3 +1815,4 @@
     </div>
 </body>
 </html>
+

@@ -452,6 +452,7 @@
     };
 
     const Utils = {
+        toTwoDigits: (value) => String(value).padStart(2, '0'),
         showCustomAlert: (message, type = 'error', duration = 3500) => {
             if (!UIElements.customAlertBox || !UIElements.customAlertMessageBox) return;
             UIElements.customAlertMessageBox.textContent = message;
@@ -477,9 +478,12 @@
         formatDateToKey: (dateObj) => {
             if (!dateObj) return null;
             const year = dateObj.getUTCFullYear();
-            const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
-            const day = String(dateObj.getUTCDate()).padStart(2, '0');
+            const month = Utils.toTwoDigits(dateObj.getUTCMonth() + 1);
+            const day = Utils.toTwoDigits(dateObj.getUTCDate());
             return `${year}-${month}-${day}`;
+        },
+        formatLocalDateToKey: (year, month_0_indexed, day) => {
+            return `${year}-${Utils.toTwoDigits(month_0_indexed + 1)}-${Utils.toTwoDigits(day)}`;
         }
     };
 
@@ -840,35 +844,40 @@
             SecondaryScheduler.ensureScheduleForCurrentMonth();
 
             const today = new Date();
-            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const todayStr = Utils.formatLocalDateToKey(today.getFullYear(), today.getMonth(), today.getDate());
             
             const firstDayOfMonth = new Date(AppState.currentYear, AppState.currentMonth, 1);
             const lastDayOfMonth = new Date(AppState.currentYear, AppState.currentMonth + 1, 0);
             const daysInMonth = lastDayOfMonth.getDate();
             const dayOfWeek = firstDayOfMonth.getDay();
+            const selectedStaff = AppState.selectedStaffForFilter;
+            const isPrimaryView = AppState.activeView === 'primary';
+            const restDayLabel = AppState.sentrySchedule.config.restDayLabel;
+            const calendarFragment = document.createDocumentFragment();
+
             UIElements.monthYearDisplay.textContent = `${AppState.currentYear}年 ${AppState.currentMonth + 1}月`;
             const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
             dayNames.forEach(name => {
                 const dayHeader = document.createElement('div');
                 dayHeader.className = 'text-center font-semibold text-sm py-2 bg-slate-100 rounded-t-md';
                 dayHeader.textContent = name;
-                UIElements.calendarGrid.appendChild(dayHeader);
+                calendarFragment.appendChild(dayHeader);
             });
             for (let i = 0; i < dayOfWeek; i++) {
                 const blankCell = document.createElement('div');
                 blankCell.className = 'calendar-day bg-slate-50 rounded-md';
-                UIElements.calendarGrid.appendChild(blankCell);
+                calendarFragment.appendChild(blankCell);
             }
             for (let day = 1; day <= daysInMonth; day++) {
                 const dayCell = document.createElement('div');
-                const dateStr = `${AppState.currentYear}-${String(AppState.currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dateStr = Utils.formatLocalDateToKey(AppState.currentYear, AppState.currentMonth, day);
                 const currentDate = new Date(AppState.currentYear, AppState.currentMonth, day);
                 const currentDayOfWeek = currentDate.getDay();
                 const isWeekend = currentDayOfWeek === 0 || currentDayOfWeek === 6;
                 const holidayName = AppState.holidays[dateStr];
                 
                 dayCell.className = 'calendar-day p-2 rounded-md';
-                if (AppState.activeView === 'primary') dayCell.classList.add('cursor-pointer');
+                if (isPrimaryView) dayCell.classList.add('cursor-pointer');
                 dayCell.dataset.date = dateStr;
 
                 if (dateStr === todayStr) {
@@ -890,7 +899,7 @@
                 }
                 dayHeader.appendChild(dayNumber);
 
-                if (AppState.activeView === 'primary' && isWeekend && !holidayName) {
+                if (isPrimaryView && isWeekend && !holidayName) {
                     const secondaryShiftGroupName = AppState.secondarySchedule.shifts[dateStr];
                     if (secondaryShiftGroupName) {
                         const indicator = document.createElement('span');
@@ -904,7 +913,7 @@
                 const contentWrapper = document.createElement('div');
                 contentWrapper.className = 'day-content-wrapper';
                 
-                if (AppState.activeView === 'primary') {
+                if (isPrimaryView) {
                     dayCell.addEventListener('click', () => UI.openAssignmentModal(dateStr));
                     
                     const primaryShiftCell = document.createElement('div');
@@ -916,7 +925,7 @@
                     
                     const primaryShiftPersonName = AppState.shifts[dateStr];
                     if (primaryShiftPersonName) {
-                         if (AppState.selectedStaffForFilter === "ALL" || AppState.selectedStaffForFilter === primaryShiftPersonName) {
+                         if (selectedStaff === "ALL" || selectedStaff === primaryShiftPersonName) {
                             const personColor = AppState.staffColors[primaryShiftPersonName] || { background: '#E0E0E0', text: '#000000' };
                             const personSpan = document.createElement('span');
                             personSpan.className = 'assigned-person';
@@ -930,11 +939,11 @@
                             dayCell.classList.add('filtered-out');
                         }
                     } else {
-                        if (AppState.selectedStaffForFilter !== "ALL") dayCell.classList.add('filtered-out');
+                        if (selectedStaff !== "ALL") dayCell.classList.add('filtered-out');
                     }
 
                     const sentryShiftTime = AppState.sentrySchedule.shifts[dateStr];
-                    if (sentryShiftTime && sentryShiftTime !== AppState.sentrySchedule.config.restDayLabel) {
+                    if (sentryShiftTime && sentryShiftTime !== restDayLabel) {
                         sentryCell.innerHTML = `<i class="fas fa-search-location fa-fw mr-1"></i> ${sentryShiftTime.substring(0, 2)}`;
                     }
                     
@@ -966,15 +975,16 @@
                 }
                 
                 dayCell.appendChild(contentWrapper);
-                UIElements.calendarGrid.appendChild(dayCell);
+                calendarFragment.appendChild(dayCell);
             }
             const totalCells = dayOfWeek + daysInMonth;
             const remainingCells = (7 - (totalCells % 7)) % 7;
             for (let i = 0; i < remainingCells; i++) {
                 const blankCell = document.createElement('div');
                 blankCell.className = 'calendar-day bg-slate-50 rounded-md';
-                UIElements.calendarGrid.appendChild(blankCell);
+                calendarFragment.appendChild(blankCell);
             }
+            UIElements.calendarGrid.appendChild(calendarFragment);
         },
         changeMonth: (offset) => {
             DataStorage.saveData();
@@ -1815,4 +1825,3 @@
     </div>
 </body>
 </html>
-

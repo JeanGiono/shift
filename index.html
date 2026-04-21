@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>排班工具 v8.3</title>
+    <title>排班工具 v0421</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
@@ -467,7 +467,7 @@
             if (UIElements.customAlertBox) UIElements.customAlertBox.style.display = 'none';
         },
         getLocalStorageKey: (dataType) => {
-            const version = "v8.3_weekday_holiday_rule"; // UPDATED: Version key for new logic
+            const version = "v0421_weekday_holiday_rule"; // UPDATED: Version key for new logic
             if (['holidays_all', 'secondary_shifts', 'sentry_shifts', 'sentry_initial_condition'].includes(dataType)){
                 return `shiftSchedule_${version}_${dataType}`;
             }
